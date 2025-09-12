@@ -1,0 +1,12 @@
+# CodeQL query suite for data privacy compliance
+# Reference queries for GDPR/CCPA enforcement
+
+queries:
+  - path: codeql-queries/gdpr/ImproperStorage.ql
+  - path: codeql-queries/gdpr/UnsecuredTransmission.ql
+  - path: codeql-queries/gdpr/LoggingSensitiveData.ql
+  - path: codeql-queries/gdpr/MissingAnonymization.ql
+  - path: codeql-queries/ccpa/DataRetentionPolicy.ql
+  - path: codeql-queries/ccpa/DeletionRequestMechanism.ql
+
+# You can add custom queries or adjust severity metadata in the individual .ql files.

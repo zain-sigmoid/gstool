@@ -1,0 +1,12 @@
+report.json
+gitleaks.toml
+trufflehog_results.json
+scancode_report.json
+semgrep_output.json
+Test/
+RGM_econ_pyfiles/
+extra/
+.vscode/
+__pycache__
+*.pyc
+*.DS_Store
