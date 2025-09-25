@@ -99,7 +99,7 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
         await self._run_radon_analysis(config.target_path)
 
         # Analyze code duplication
-        await self._analyze_code_duplication(config.target_path)
+        # await self._analyze_code_duplication(config.target_path)
 
         # Analyze function duplication
         self._analyze_function_duplication(python_files)
