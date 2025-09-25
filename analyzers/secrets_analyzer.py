@@ -13,6 +13,7 @@ import traceback
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
+from utils.gitleaks_prod import ensure_gitleaks
 from core.interfaces import SecurityAnalyzer, AnalysisResult
 from core.models import (
     UnifiedFinding,
@@ -171,6 +172,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
                 report_path = temp_file.name
             gitleaks_toml_path = "utils/gitleaks.toml"
             gitleaks_toml_path = os.path.abspath(gitleaks_toml_path)
+            gitleaks_bin = ensure_gitleaks()
             # Build Gitleaks command
             # command = [
             #     "gitleaks",
@@ -184,7 +186,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
             # ]
             # using gitleaks v8.1+ command which also accepts custom rules
             commandv2 = [
-                "gitleaks",
+                gitleaks_bin,
                 "dir",
                 source_path,
                 "-c",
