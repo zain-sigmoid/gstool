@@ -13,7 +13,7 @@ import traceback
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-from utils.gitleaks_prod import ensure_gitleaks
+from utils.prod_shift import ensure_gitleaks
 from core.interfaces import SecurityAnalyzer, AnalysisResult
 from core.models import (
     UnifiedFinding,
