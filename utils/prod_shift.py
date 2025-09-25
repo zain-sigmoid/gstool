@@ -44,7 +44,7 @@ def ensure_gitleaks():
 
     if not os.path.exists(GITLEAKS_PATH):
         logger.info("Fetching gitleaks from github")
-        url = f"https://github.com/gitleaks/gitleaks/releases/download/{GITLEAKS_VERSION}/gitleaks_{GITLEAKS_VERSION}_linux_x64.tar.gz"
+        url = f"https://github.com/gitleaks/gitleaks/releases/download/v{GITLEAKS_VERSION}/gitleaks_{GITLEAKS_VERSION}_linux_x64.tar.gz"
         tar_path = "/tmp/gitleaks.tar.gz"
 
         logger.info("set temperory path for logger")
