@@ -376,7 +376,7 @@ class ObservabilityAnalyzer(QualityAnalyzer):
                 category=FindingCategory.OBSERVABILITY,
                 severity=severity,
                 confidence_score=0.9,
-                location=CodeLocation(file_path="/".join(str(target_path).split("/")[-2:])),
+                location=CodeLocation(file_path="/".join(str(target_path).split("/")[-1])),
                 rule_id="LOW_OBSERVABILITY_COVERAGE",
                 remediation_guidance=f"Add logging statements to functions to reach {minimum_threshold}% coverage",
                 remediation_complexity=ComplexityLevel.MODERATE,
