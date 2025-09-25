@@ -324,6 +324,7 @@ class TestabilityAnalyzer(QualityAnalyzer):
     async def _generate_findings(
         self, analysis_results: Dict[str, Any], target_path: str, config: Dict[str, Any]
     ) -> List[UnifiedFinding]:
+        
         """Generate findings based on testability analysis results."""
         findings = []
 
