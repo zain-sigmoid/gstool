@@ -20,7 +20,7 @@ import shutil
 import io
 
 # Configure logging
-logging.basicConfig(level=logging.INFO,format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s")
+logging.basicConfig(level=logging.INFO,format="%(levelname)-8s | %(name)s | %(message)s")
 logging.getLogger("watchdog").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("PIL").setLevel(logging.WARNING)
