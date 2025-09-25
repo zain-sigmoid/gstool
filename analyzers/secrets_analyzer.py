@@ -208,11 +208,13 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
             # if not self._is_git_repo(source_path):
             #     command.append("--no-git")
 
-            logger.debug(f"Running command: {' '.join(commandv2)}")
-
+            # logger.debug(f"Running command: {' '.join(commandv2)}")
+            
+            cmd = [os.fspath(x) for x in commandv2]
+            logger.debug(f"Running command: {' '.join(cmd)}")
             # Run Gitleaks
             result = subprocess.run(
-                commandv2,
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minute timeout
