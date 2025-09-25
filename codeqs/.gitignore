@@ -1,8 +1,0 @@
-__pycache__/
-.mypy_cache/
-
-.DS_Store
-scancode_report.json
-semgrep_output.json
-
-project_run/RGM_econ_pyfiles/

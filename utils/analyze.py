@@ -1,7 +1,7 @@
 import ast
 
 
-def extract_function_node(source_code, function_name):
+async def extract_function_node(source_code, function_name):
     """
     Parse the source code and return the AST node for the specified function.
     """
@@ -12,15 +12,15 @@ def extract_function_node(source_code, function_name):
     return None
 
 
-def max_depth(node, level=0):
+async def max_depth(node, level=0):
     if not isinstance(node, ast.AST) or not hasattr(node, "_fields"):
         return level
     return max(
         [
             (
-                max_depth(getattr(node, field), level + 1)
+                await max_depth(getattr(node, field), level + 1)
                 if isinstance(getattr(node, field), list)
-                else max_depth(getattr(node, field), level + 1)
+                else await max_depth(getattr(node, field), level + 1)
             )
             for field in node._fields
             if getattr(node, field) is not None
@@ -29,7 +29,7 @@ def max_depth(node, level=0):
     )
 
 
-def analyze_function_complexity(func_node):
+async def analyze_function_complexity(func_node):
     """
     Analyze nesting, loops, conditionals, and compute LOC & cyclomatic complexity.
     """
@@ -43,7 +43,7 @@ def analyze_function_complexity(func_node):
         "calls": 0,
     }
 
-    def visit(node, depth=0):
+    async def visit(node, depth=0):
         stats["nesting_depth"] = max(stats["nesting_depth"], depth)
 
         if isinstance(node, ast.If):
@@ -58,7 +58,7 @@ def analyze_function_complexity(func_node):
             stats["calls"] += 1
 
         for child in ast.iter_child_nodes(node):
-            visit(
+            await visit(
                 child,
                 (
                     depth + 1
@@ -67,8 +67,8 @@ def analyze_function_complexity(func_node):
                 ),
             )
 
-    visit(func_node)
-    stats["nesting_depth"] = max_depth(func_node)
+    await visit(func_node)
+    stats["nesting_depth"] = await max_depth(func_node)
     stats["loc"] = (
         func_node.end_lineno - func_node.lineno + 1
         if hasattr(func_node, "end_lineno")
@@ -77,7 +77,7 @@ def analyze_function_complexity(func_node):
     return stats
 
 
-def suggest_improvements(stats, cc_score):
+async def suggest_improvements(stats, cc_score):
     """
     Provide suggestions based on stats and cyclomatic complexity.
     """
@@ -103,10 +103,11 @@ def suggest_improvements(stats, cc_score):
     if not suggestions:
         suggestions.append("Function is within reasonable complexity limits.")
 
-    return suggestions
+    final_suggestion = " ".join(suggestions)
+    return final_suggestion
 
 
-def analyze_function_in_file(filepath, function_name, cc_score):
+async def analyze_function_in_file(filepath, function_name, cc_score):
     """
     Main callable function: accepts file path and function name, returns analysis dict.
     """
@@ -116,12 +117,12 @@ def analyze_function_in_file(filepath, function_name, cc_score):
     except Exception as e:
         return {"error": f"Could not read file: {e}"}
 
-    func_node = extract_function_node(source_code, function_name)
+    func_node = await extract_function_node(source_code, function_name)
     if func_node is None:
         return {"error": f"Function '{function_name}' not found in {filepath}"}
 
-    stats = analyze_function_complexity(func_node)
-    suggestions = suggest_improvements(stats, cc_score)
+    stats = await analyze_function_complexity(func_node)
+    suggestions = await suggest_improvements(stats, cc_score)
 
     return {
         "function": function_name,

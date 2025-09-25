@@ -5,27 +5,77 @@ Analyzes code maintainability including complexity, duplication, and coupling.
 
 import ast
 import json
+import asyncio
+import logging
+import traceback
+from typing import List, Dict, Any
 from collections import defaultdict, Counter
-from common.tool_runner import ToolRunner
-from common.file_utils import find_python_files
+from core.tool_runner import ToolRunner
+from core.file_utils import find_python_files
+from core.interfaces import QualityAnalyzer
 from termcolor import colored
+from rich import print as rprint
 from utils.mi import MIDiagnose
 from utils.analyze import analyze_function_in_file
 from utils.duplicate_code import run_jscpd_analysis
+from core.models import (
+    AnalysisConfiguration,
+    AnalysisResult,
+    AnalysisMetrics,
+    UnifiedFinding,
+    FindingCategory,
+    SeverityLevel,
+    ComplexityLevel,
+    CodeLocation,
+)
+
+logger = logging.getLogger(__name__)
 
 
-class MaintainabilityAnalyzer:
+class MaintainabilityAnalyzer(QualityAnalyzer):
     """Analyzer for code maintainability metrics."""
 
-    def __init__(self, config):
+    def __init__(
+        self,
+    ):
         """Initialize the maintainability analyzer."""
-        self.config = config
+        super().__init__("maintainability", "1.0.0")
+        self.supported_tools = ["radon", "jscpd"]
+        self.quality_categories = [
+            "cyclomatic_complexity",
+            "complexity_risk_ranking",
+            "maintainability_index",
+            "code_duplication",
+        ]
         self.tool_runner = ToolRunner()
         self.findings = []
-        self.score = 100.0
-        print('running maintainability analyzer...')
 
-    def analyze(self, path):
+    def get_supported_file_types(self) -> List[str]:
+        """Return supported file types."""
+        return [".py"]
+
+    def get_quality_categories(self) -> List[str]:
+        """Get quality categories this analyzer covers."""
+        return self.quality_categories
+
+    def get_quality_metrics(self) -> List[str]:
+        """Get quality metrics this analyzer can provide."""
+        return [
+            "cyclomatic_complexity_score",
+            "complexity_risk_ranking_score",
+            "maintainability_index",
+            "code_duplication_percentage",
+        ]
+
+    def get_default_config(self) -> Dict[str, Any]:
+        """Get default configuration for this analyzer."""
+        return {""}
+
+    def _find_python_files(self, path: str) -> List[str]:
+        """Find all Python files under the given path, excluding virtual environments."""
+        return find_python_files(path, exclude_test_files=False)
+
+    async def analyze(self, config: AnalysisConfiguration) -> AnalysisResult:
         """
         Analyze code maintainability.
 
@@ -35,37 +85,73 @@ class MaintainabilityAnalyzer:
         Returns:
             dict: Analysis results with score and findings
         """
-        self.findings = []
-        self.score = 100.0
-
-        python_files = find_python_files(path)
-
+        error_count = 0
+        start_time = asyncio.get_event_loop().time()
+        python_files = self._find_python_files(config.target_path)
         if not python_files:
-            return {
-                "score": self.score,
-                "findings": [],
-                "message": "No Python files found",
-            }
+            logger.warning(f"No Python files found in {config.target_path}")
+            return self._create_empty_result()
 
+        analyzer_config = config.analyzer_configs.get(
+            self.name, self.get_default_config()
+        )
         # Use radon for complexity analysis
-        self._run_radon_analysis(path)
-
-        # Custom analysis for coupling and cohesion
-        # self._analyze_coupling(python_files)
+        await self._run_radon_analysis(config.target_path)
 
         # Analyze code duplication
-        self._analyze_code_duplication(path)
+        await self._analyze_code_duplication(config.target_path)
 
         # Analyze function duplication
         self._analyze_function_duplication(python_files)
 
-        return {
-            "score": max(0, self.score),
-            "findings": self.findings,
-            "total_files_analyzed": len(python_files),
-        }
+        execution_time = asyncio.get_event_loop().time() - start_time
+        metrics = AnalysisMetrics(
+            analyzer_name=self.name,
+            execution_time_seconds=execution_time,
+            files_analyzed=len(python_files),
+            findings_count=len(self.findings),
+            error_count=error_count,
+            success=True,
+        )
+        logger.info(
+            f"Maintainability analysis completed: {len(self.findings)} findings in {execution_time:.2f}s"
+        )
+        findings = await self._generate_findings(self.findings)
+        return AnalysisResult(
+            findings=findings,
+            metrics=metrics,
+            metadata={
+                "python_files_count": len(python_files),
+            },
+        )
 
-    def _run_radon_analysis(self, path):
+    async def _generate_findings(
+        self,
+        results,
+    ) -> List[UnifiedFinding]:
+        """Generate findings asynchronously."""
+        findings = []
+        for finding in results:
+            unified_finding = UnifiedFinding(
+                title=f"Maintainability Issue: {finding['type'].replace('_', ' ').title()}",
+                severity=finding.get("severity", SeverityLevel.INFO),
+                category=FindingCategory.MAINTAINABILITY,
+                description=finding.get("description", ""),
+                details=finding.get("details", None),
+                confidence_score=0.8,
+                location=CodeLocation(
+                    file_path=finding.get("file", ""),
+                    line_number=finding.get("line", 0),
+                ),
+                remediation_guidance=finding.get("suggestion", ""),
+                remediation_complexity=ComplexityLevel.MODERATE,
+                source_analyzer=self.name,
+                tags={"test_files", "econ_files"},
+            )
+            findings.append(unified_finding)
+        return findings
+
+    async def _run_radon_analysis(self, path):
         """Run radon for complexity and maintainability analysis."""
         try:
             # Cyclomatic Complexity
@@ -73,46 +159,29 @@ class MaintainabilityAnalyzer:
                 "radon", ["cc", path, "--json"], capture_output=True
             )
             if cc_result.returncode == 0 and cc_result.stdout:
-                self._process_radon_cc(cc_result.stdout)
+                await self._process_radon_cc(cc_result.stdout)
                 cc_data = json.loads(cc_result.stdout)
-                print(
-                    colored("Processing cyclomatic complexity to get CC Rank", "green")
-                )
-                self._calculate_complexity_rank(cc_data=cc_data)
+                await self._calculate_complexity_rank(cc_data=cc_data)
 
             # Maintainability Index
             mi_result = self.tool_runner.run_tool(
                 "radon", ["mi", path, "--json"], capture_output=True
             )
-
             if mi_result.returncode == 0 and mi_result.stdout:
                 self._process_radon_mi(mi_result.stdout)
 
-            # Raw metrics (LOC)
-            # raw_result = self.tool_runner.run_tool(
-            #     "radon", ["raw", path, "--json"], capture_output=True
-            # )
-
-            # if raw_result.returncode == 0 and raw_result.stdout:
-            #     self._process_radon_raw(raw_result.stdout)
-
-            # print(
-            #     colored("findings after running whole maintainability", "yellow"),
-            #     self.findings,
-            # )
-
-        except Exception:
+        except Exception as e:
             # Radon not available - use manual complexity analysis
+            print(colored(f"[EXC] {e}", "red"))
+            traceback.print_exc()
             self._manual_complexity_analysis(path)
 
-    def _process_radon_cc(self, cc_output):
+    async def _process_radon_cc(self, cc_output):
         """Process radon cyclomatic complexity output."""
         try:
-            print(colored("Processing cyclomatic complexity...", "green"))
             cc_data = json.loads(cc_output)
             high_complexity_functions = 0
             total_functions = 0
-
             for file_path, functions in cc_data.items():
                 for func in functions:
                     total_functions += 1
@@ -121,13 +190,15 @@ class MaintainabilityAnalyzer:
                     line = func.get("lineno", 0)
 
                     if complexity > 10:  # High complexity threshold
-                        severity = "high" if complexity > 20 else "medium"
-                        score_penalty = 10 if complexity > 20 else 5
-                        analysis = analyze_function_in_file(
+                        severity = (
+                            SeverityLevel.HIGH
+                            if complexity > 20
+                            else SeverityLevel.MEDIUM
+                        )
+                        analysis = await analyze_function_in_file(
                             file_path, func_name, complexity
                         )
-                        # print(colored(f"suggestion: {analysis['metrics']}", "yellow"))
-
+                        rprint(analysis)
                         self.findings.append(
                             {
                                 "type": "cyclomatic_complexity",
@@ -137,29 +208,14 @@ class MaintainabilityAnalyzer:
                                 "function": func_name,
                                 "complexity": complexity,
                                 "details": analysis["metrics"],
-                                "description": f'Function "{func_name}" has high cyclomatic complexity ({complexity})',
+                                "description": f"Function `{func_name}` has high cyclomatic complexity ({complexity})",
                                 "suggestion": analysis["suggestions"],
                             }
                         )
-
-                        self.score -= score_penalty
                         high_complexity_functions += 1
 
-            # Overall complexity assessment
-            if total_functions > 0:
-                complexity_ratio = high_complexity_functions / total_functions
-                if complexity_ratio > 0.25:  # More than 25% functions are complex
-                    self.findings.append(
-                        {
-                            "type": "overall_complexity",
-                            "severity": "medium",
-                            "description": f"{high_complexity_functions}/{total_functions} functions have high complexity",
-                            "suggestion": "Consider refactoring to reduce overall code complexity",
-                        }
-                    )
-                    self.score -= 10
-
         except json.JSONDecodeError:
+            traceback.print_exc()
             print(colored("Error processing radon cyclomatic complexity output", "red"))
             pass
 
@@ -170,7 +226,7 @@ class MaintainabilityAnalyzer:
         except Exception:
             return 1
 
-    def _calculate_complexity_rank(self, cc_data):
+    async def _calculate_complexity_rank(self, cc_data):
         """
         Calculates percentage of LOC in moderate, high, and very high complexity zones and assigns a rank (++ to --).
         """
@@ -229,13 +285,13 @@ class MaintainabilityAnalyzer:
             ):
                 system_rank = "Maintainable"
 
-            severity = "info"
+            severity = SeverityLevel.INFO
             if system_rank in ["Highly Maintainable", "Fairly Maintainable"]:
-                severity = "info"
+                severity = SeverityLevel.INFO
             elif system_rank == "Moderately Maintainable":
-                severity = "medium"
+                severity = SeverityLevel.MEDIUM
             else:
-                severity = "high"
+                severity = SeverityLevel.HIGH
 
             details = {
                 "percentages": percent,
@@ -245,18 +301,17 @@ class MaintainabilityAnalyzer:
                 "total_loc": total_loc,
                 "rank": system_rank,
             }
-
+            desc = json.dumps(details, indent=2)
             # Add to findings
             self.findings.append(
                 {
                     "type": "complexity_risk_ranking",
                     "severity": severity,
-                    "description": (
-                        "Complexity LOC percentages:<br>"
-                        "<strong>Moderate</strong>: % of LOC in functions rated C by Cyclomatic Complexity (CC); <br>"
-                        "<strong>High</strong>: rated D by CC; <br>"
-                        "<strong>Very High</strong>: rated E by CC."
-                    ),
+                    "description": """
+                        - **Moderate**: Percent of LOC in functions rated C by Cyclomatic Complexity (CC)  
+                        - **High**: Percent of LOC in functions rated D by CC  
+                        - **Very High**: Percent of LOC in functions rated E by CC
+                        """,
                     "file": file_path,
                     "details": details,
                     "rank": system_rank,
@@ -275,7 +330,7 @@ class MaintainabilityAnalyzer:
                 mi_score = mi_info.get("mi", 100)
 
                 if mi_score <= 20 and mi_score > 10:
-                    severity = "medium"
+                    severity = SeverityLevel.MEDIUM
                     suggestion = (
                         "Maintainability is moderate and could be improved.<br>"
                         "🛠 Suggestions:<br>"
@@ -284,18 +339,10 @@ class MaintainabilityAnalyzer:
                         "- Aim for better modular design"
                     )
                 elif mi_score <= 10:
-                    severity = "high"
+                    severity = SeverityLevel.HIGH
                     response = MIDiagnose.analyze_file(file_path)
-                    # suggestion = (
-                    #     "Maintainability is very low due to high complexity or excessive code length.<br>"
-                    #     "🛠 Consider:<br>"
-                    #     "- Refactoring long methods<br>"
-                    #     "- Breaking logic into smaller functions<br>"
-                    #     "- Reducing nested conditionals<br>"
-                    #     "- Improving naming and removing dead code"
-                    # )
                 else:
-                    severity = "info"
+                    severity = SeverityLevel.INFO
                     continue
                 file = file_path.split("/")[-1]
                 self.findings.append(
@@ -329,7 +376,11 @@ class MaintainabilityAnalyzer:
                         complexity = self._calculate_cyclomatic_complexity(node)
 
                         if complexity > 10:
-                            severity = "high" if complexity > 20 else "medium"
+                            severity = (
+                                SeverityLevel.HIGH
+                                if complexity > 20
+                                else SeverityLevel.MEDIUM
+                            )
                             score_penalty = 10 if complexity > 20 else 5
 
                             self.findings.append(
@@ -340,7 +391,7 @@ class MaintainabilityAnalyzer:
                                     "line": node.lineno,
                                     "function": node.name,
                                     "complexity": complexity,
-                                    "description": f'Function "{node.name}" has high cyclomatic complexity ({complexity})',
+                                    "description": f"Function `{node.name}` has high cyclomatic complexity ({complexity})",
                                     "suggestion": "Consider breaking this function into smaller, simpler functions",
                                 }
                             )
@@ -419,7 +470,7 @@ class MaintainabilityAnalyzer:
                     self.findings.append(
                         {
                             "type": "coupling",
-                            "severity": "low",
+                            "severity": SeverityLevel.LOW,
                             "file": file_path,
                             "coupled_modules": high_coupled_modules,
                             "description": f"High usage-based coupling with: {', '.join(high_coupled_modules)}",
@@ -462,38 +513,42 @@ class MaintainabilityAnalyzer:
                 self.findings.append(
                     {
                         "type": "code_duplication",
-                        "severity": "medium",
+                        "severity": SeverityLevel.MEDIUM,
                         "function": func_name,
-                        "description": f'Function "{func_name}" appears in multiple files with similar structure.',
-                        "files": file_list,
+                        "description": f"Function `{func_name}` appears at multiple locations with similar structure.",
+                        "file": ", ".join(file_locations),
                         "locations": file_locations,
                         "suggestion": (
-                            f'Consider moving "{func_name}" into a shared module or utility file '
+                            f"Consider moving `{func_name}` into a shared module or utility file "
                             "to reduce duplication and improve maintainability."
                         ),
                     }
                 )
 
-    def _analyze_code_duplication(self, path):
+    async def _analyze_code_duplication(self, path):
         """Analyze code duplication."""
         # Simple duplication detection based on function similarity
         result = run_jscpd_analysis(path, min_tokens=20)
         if "duplicates" in result:
             clones = result["duplicates"]
+            rprint(clones)
             for x in clones:
-                lines = x["lines"]
+                lines = x["lines"] - 1
                 ffile = x["firstFile"]
                 sfile = x["secondFile"]
                 fname = ffile["name"].split("/")[-1]
                 sname = sfile["name"].split("/")[-1]
                 fstart = ffile["start"]
                 sstart = sfile["start"]
+                fend = ffile["end"]
+                send = sfile["end"]
+                locations = [f"{sname}:{sstart}-{send}", f"{fname}:{fstart}-{fend}"]
                 self.findings.append(
                     {
                         "type": "code_duplication",
-                        "severity": "medium",
-                        "description": f"{lines} Duplicate Lines found in files",
-                        "locations": [f"{sname}:{sstart}", f"{fname}:{fstart}"],
+                        "severity": SeverityLevel.MEDIUM,
+                        "description": f"{lines} Duplicate Lines found in 2 files",
+                        "file": ", ".join(locations),
                         "suggestion": "Refactor the repeated code into a single shared function to improve maintainability and reduce redundancy.",
                     }
                 )
@@ -501,7 +556,7 @@ class MaintainabilityAnalyzer:
         if "statistics" in result:
             stats = result["statistics"]["total"]
             percentage = stats.get("percentage", 0)
-            severity = "info"
+            severity = SeverityLevel.INFO
 
             self.findings.append(
                 {
@@ -517,7 +572,7 @@ class MaintainabilityAnalyzer:
             self.findings.append(
                 {
                     "type": "code_duplication",
-                    "severity": "info",
+                    "severity": SeverityLevel.INFO,
                     "description": "No duplication info found.",
                     "file": path,
                 }

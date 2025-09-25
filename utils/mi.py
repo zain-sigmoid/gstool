@@ -12,8 +12,6 @@ class MIDiagnose:
 
     @staticmethod
     def analyze_file(file_path):
-        print(colored(f"\n📁 Analyzing {file_path}", "cyan"))
-
         # Maintainability Index
         mi_json = MIDiagnose.run_command(["radon", "mi", "--json", file_path])
         mi_score = json.loads(mi_json).get(file_path, {}).get("mi", 100)
@@ -70,7 +68,6 @@ class MIDiagnose:
             if match:
                 value = match.group(1)
                 halstead_data[metric] = float(value) if "." in value else int(value)
-        print(halstead_data)
         stats = {
             "loc": loc,
             "source_loc": sloc,
@@ -121,11 +118,11 @@ class MIDiagnose:
         suggestions.append(
             f"Time requires to program is {time_in_m:.2f} Minutes or {time_in_h:.2f} Hours"
         )
-
+        final_suggestion = " ".join(suggestions)
         response = {}
         response["stats"] = stats
         response["comment_density"] = comment_density
-        response["suggestions"] = suggestions
+        response["suggestions"] = final_suggestion
         response["hcf"] = high_complex_funcs_name
         response["cc_avg"] = cc_avg
 

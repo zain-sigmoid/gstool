@@ -1,15 +1,16 @@
-from typing import Dict, Tuple
-from analyzers.maintainability_analyzer import MaintainabilityAnalyzer
-from analyzers.performance_analyzer import PerformanceAnalyzer
+"""
+Analysis modules package.
+Contains refactored analysis modules that implement the common interfaces.
+"""
+# Flake8: noqa: E501
+from .secrets_analyzer import HardcodedSecretsAnalyzer
+from .robustness_analyzer import RobustnessAnalyzer
+from .pii_analyzer import PIIAnalyzer
+from .testability_analyzer import TestabilityAnalyzer
+from .observability_analyzer import ObservabilityAnalyzer
+from .readability_analyzer import ReadabilityAnalyzer
+from .injection_analyzer import InjectionAnalyzer
 
-ANALYZERS: Dict[str, Tuple[str, callable]] = {
-    # label -> (pretty name, function)
-    # "security": ("Security", security_analyzer),
-    # "dependency": ("Dependency", dependency_analyzer),
-    # "robustness": ("Robustness", robustness_analyzer),
-    "maintainability": ("Maintainability", MaintainabilityAnalyzer),
-    # "readability": ("Readability", readability_analyzer),
-    "performance": ("Performance", PerformanceAnalyzer),
-}
+__all__ = ["HardcodedSecretsAnalyzer", "RobustnessAnalyzer", "PIIAnalyzer", "TestabilityAnalyzer", "ObservabilityAnalyzer", "ReadabilityAnalyzer", "InjectionAnalyzer"]
 
-SEVERITY_ORDER = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
+# All analyzers have been refactored and integrated! 🎉

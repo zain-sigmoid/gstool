@@ -8,7 +8,6 @@ def find_duplicate_code(path: str, min_tokens: int = 50) -> dict:
     """
     Run jscpd on the given path and return a summary of duplicate code from stdout.
     """
-    print("inside duplicate funcions", path)
     try:
         result = subprocess.run(
             [
@@ -23,14 +22,11 @@ def find_duplicate_code(path: str, min_tokens: int = 50) -> dict:
             capture_output=True,
             text=True,
         )
-        print(result)
         if result.returncode not in [0, 1]:
             return {"error": f"JSCPD error: {result.stderr.strip()}"}
 
-        print("jscpd result", result.stderr.strip())
         # Parse stdout directly
         report = json.loads(result.stdout)
-        print(report)
         summary = {
             "total_files": report.get("statistics", {})
             .get("total", {})

@@ -1,10 +1,33 @@
-streamlit==1.39.0
-pandas
+# Core web framework
+streamlit>=1.39.0
+
+# Security analysis tools
+bandit>=1.8.6
+semgrep>=1.28.1
+
+# Code quality and type checking
+mypy>=1.7.0
+pylint>=3.0.0
+
+# Data processing and utilities
+pandas>=2.0.0
 numpy
-scikit-learn==1.4.1.post1
-seaborn==0.13.2
-matplotlib
-plotly
+
+# Testing framework
+pytest>=7.4.0
+
+# Configuration and utilities
+click>=8.1.0
+rich>=13.5.0
+
+# File handling and path utilities
+pathspec>=0.11.0
+
+# Development and debugging
+flake8>=6.0.0
+isort>=5.12.0
+
+# Streamlit extras
 sweetviz==2.3.1
 st-annotated-text==4.0.1
 st-copy-to-clipboard==0.1.6
@@ -14,13 +37,16 @@ streamlit-extras==0.4.2
 streamlit-option-menu==0.3.12
 streamlit-toggle-switch==1.0.2
 streamlit-vertical-slider==2.5.5
-flake8
-radon
-pylint
+
+# License and audit tools
 pip-audit
 pip-licenses
-mypy
-bandit
-semgrep
+
+# Code analysis tools
+radon
+
+# License scanning
 scancode-toolkit==32.0.2
+
+# Terminal color
 termcolor

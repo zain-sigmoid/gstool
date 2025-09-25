@@ -6,24 +6,78 @@ Analyzes code performance issues including algorithmic complexity and inefficien
 import ast
 import re
 import os
+import asyncio
+import logging
+import traceback
+from typing import List, Dict, Any
 from collections import defaultdict
 from pathlib import Path
 from termcolor import colored
-from common.file_utils import find_python_files
+from core.file_utils import find_python_files
 from utils.time_space_analyzer import ComplexityEstimator
+from core.interfaces import QualityAnalyzer
+from core.models import (
+    AnalysisConfiguration,
+    AnalysisResult,
+    AnalysisMetrics,
+    UnifiedFinding,
+    FindingCategory,
+    SeverityLevel,
+    ComplexityLevel,
+    CodeLocation,
+)
+
+logger = logging.getLogger(__name__)
 
 
-class PerformanceAnalyzer:
+class PerformanceAnalyzer(QualityAnalyzer):
     """Analyzer for performance-related code issues."""
 
-    def __init__(self, config):
+    def __init__(self):
         """Initialize the performance analyzer."""
-        self.config = config
+        super().__init__("performance", "1.0.0")
+        self.supported_tools = ["ast"]
+        self.quality_categories = [
+            "complexity",
+            "nested_loops",
+            "naive_sorting",
+            "recursive_without_memoization",
+            "string_concatenation",
+            "inefficient_data_structure",
+            "regex_patterns",
+        ]
         self.findings = []
-        self.score = 100.0
-        print('running performance analyzer...')
+        print("running performance analyzer...")
 
-    def analyze(self, path):
+    def get_supported_file_types(self) -> List[str]:
+        """Return supported file types."""
+        return [".py"]
+
+    def get_quality_categories(self) -> List[str]:
+        """Get quality categories this analyzer covers."""
+        return self.quality_categories
+
+    def get_quality_metrics(self) -> List[str]:
+        """Get quality metrics this analyzer can provide."""
+        return [
+            "time_complexity",
+            "naive_sorting",
+            "recursive_without_memoization",
+            "string_concatenation",
+            "inefficient_data_structure",
+            "regex_patterns",
+            "naive_search",
+        ]
+
+    def get_default_config(self) -> Dict[str, Any]:
+        """Get default configuration for this analyzer."""
+        return {""}
+
+    def _find_python_files(self, path: str) -> List[str]:
+        """Find all Python files under the given path, excluding virtual environments."""
+        return find_python_files(path, exclude_test_files=False)
+
+    async def analyze(self, config: AnalysisConfiguration) -> AnalysisResult:
         """
         Analyze code for performance issues.
 
@@ -34,26 +88,61 @@ class PerformanceAnalyzer:
             dict: Analysis results with score and findings
         """
         self.findings = []
-        self.score = 100.0
-
-        python_files = find_python_files(path)
-
+        error_count = 0
+        start_time = asyncio.get_event_loop().time()
+        python_files = self._find_python_files(config.target_path)
         if not python_files:
-            return {
-                "score": self.score,
-                "findings": [],
-                "message": "No Python files found",
-            }
+            logger.warning(f"No Python files found in {config.target_path}")
+            return self._create_empty_result()
 
         # Analyze each file for performance issues
         for file_path in python_files:
             self._analyze_file_performance(file_path)
+        execution_time = asyncio.get_event_loop().time() - start_time
+        metrics = AnalysisMetrics(
+            analyzer_name=self.name,
+            execution_time_seconds=execution_time,
+            files_analyzed=len(python_files),
+            findings_count=len(self.findings),
+            error_count=error_count,
+            success=True,
+        )
+        logger.info(
+            f"Performance analysis completed: {len(self.findings)} findings in {execution_time:.2f}s"
+        )
+        findings = self._generate_findings(self.findings)
+        return AnalysisResult(
+            findings=findings,
+            metrics=metrics,
+            metadata={
+                "python_files_count": len(python_files),
+            },
+        )
 
-        return {
-            "score": max(0, self.score),
-            "findings": self.findings,
-            "total_files_analyzed": len(python_files),
-        }
+    def _generate_findings(
+        self,
+        results,
+    ) -> List[UnifiedFinding]:
+        """Generate findings asynchronously."""
+        findings = []
+        for finding in results:
+            unified_finding = UnifiedFinding(
+                title=f"Performance Issue: {finding['type'].replace('_', ' ').title()}",
+                severity=finding.get("severity", SeverityLevel.INFO),
+                category=FindingCategory.PERFORMANCE,
+                description=finding.get("description", ""),
+                confidence_score=0.8,
+                location=CodeLocation(
+                    file_path=finding.get("file", ""),
+                    line_number=finding.get("line", 0),
+                ),
+                remediation_guidance=finding.get("suggestion", ""),
+                remediation_complexity=ComplexityLevel.MODERATE,
+                source_analyzer=self.name,
+                tags={"test_files", "econ_files"},
+            )
+            findings.append(unified_finding)
+        return findings
 
     def set_parents(self, node, parent=None):
         for child in ast.iter_child_nodes(node):
@@ -79,10 +168,12 @@ class PerformanceAnalyzer:
             self._check_regex_patterns(content, file_path)
 
         except Exception as e:
+            traceback.print_exc()
+            logger.error(f"Error analyzing {file_path}: {str(e)}")
             self.findings.append(
                 {
                     "type": "analysis_error",
-                    "severity": "info",
+                    "severity": SeverityLevel.INFO,
                     "file": file_path,
                     "description": f"Could not analyze file: {str(e)}",
                     "suggestion": "Check file syntax and encoding",
@@ -100,8 +191,8 @@ class PerformanceAnalyzer:
             else:
                 self.findings.append(
                     {
-                        "type": "complexity",
-                        "severity": "high",
+                        "type": "time_complexity",
+                        "severity": SeverityLevel.HIGH,
                         "function": r["function"],
                         "file": file_path,
                         "description": f'Function "{r["function"]}" has high time complexity: {time_complexity} and space complexity: {space_complexity}',
@@ -111,8 +202,8 @@ class PerformanceAnalyzer:
         if info_count > 0:
             self.findings.append(
                 {
-                    "type": "complexity",
-                    "severity": "info",
+                    "type": "time_complexity",
+                    "severity": SeverityLevel.INFO,
                     "description": f'{info_count} functions have acceptable time complexity (O(1) or O(n)) in "{file_path.split("/")[-1]}"',
                     "file": file_path,
                     "suggestion": "These functions are good to go.",
@@ -129,26 +220,24 @@ class PerformanceAnalyzer:
                     self.findings.append(
                         {
                             "type": "nested_loops",
-                            "severity": "high",
+                            "severity": SeverityLevel.HIGH,
                             "file": file_path,
                             "line": node.lineno,
                             "description": f"Deeply nested loops (depth: {depth}) detected",
                             "suggestion": "Consider optimizing algorithm or using more efficient data structures",
                         }
                     )
-                    self.score -= 15
                 elif depth == 2:  # Double nested
                     self.findings.append(
                         {
                             "type": "nested_loops",
-                            "severity": "medium",
+                            "severity": SeverityLevel.MEDIUM,
                             "file": file_path,
                             "line": node.lineno,
                             "description": "Double nested loops detected - potential O(n²) complexity",
                             "suggestion": "Review if algorithm can be optimized to reduce time complexity",
                         }
                     )
-                    self.score -= 8
 
             for child in ast.iter_child_nodes(node):
                 find_nested_loops(child, depth)
@@ -164,7 +253,7 @@ class PerformanceAnalyzer:
                     self.findings.append(
                         {
                             "type": "naive_sorting",
-                            "severity": "medium",
+                            "severity": SeverityLevel.MEDIUM,
                             "file": file_path,
                             "line": node.lineno,
                             "function": node.name,
@@ -172,14 +261,13 @@ class PerformanceAnalyzer:
                             "suggestion": "Use built-in sorted() function or list.sort() for better performance",
                         }
                     )
-                    self.score -= 10
 
                 # Look for inefficient search patterns
                 if self._is_linear_search_pattern(node):
                     self.findings.append(
                         {
                             "type": "naive_search",
-                            "severity": "medium",
+                            "severity": SeverityLevel.MEDIUM,
                             "file": file_path,
                             "line": node.lineno,
                             "function": node.name,
@@ -187,7 +275,6 @@ class PerformanceAnalyzer:
                             "suggestion": "Consider using sets, dictionaries, or binary search for better performance",
                         }
                     )
-                    self.score -= 8
 
     def _is_bubble_sort_pattern(self, node):
         """Check if function contains bubble sort pattern."""
@@ -250,7 +337,7 @@ class PerformanceAnalyzer:
                         self.findings.append(
                             {
                                 "type": "recursive_without_memoization",
-                                "severity": "medium",
+                                "severity": SeverityLevel.MEDIUM,
                                 "file": file_path,
                                 "line": node.lineno,
                                 "function": node.name,
@@ -258,7 +345,6 @@ class PerformanceAnalyzer:
                                 "suggestion": "Consider adding memoization or using iterative approach for better performance",
                             }
                         )
-                        self.score -= 8
 
     def _is_recursive_function(self, node):
         """Check if function calls itself."""
@@ -297,14 +383,13 @@ class PerformanceAnalyzer:
                         self.findings.append(
                             {
                                 "type": "string_concatenation",
-                                "severity": "medium",
+                                "severity": SeverityLevel.MEDIUM,
                                 "file": file_path,
                                 "line": child.lineno,
                                 "description": "String concatenation in loop - potential performance issue",
                                 "suggestion": 'Use list.append() and "".join() or f-strings for better performance',
                             }
                         )
-                        self.score -= 5
 
     def _check_inefficient_data_structures(self, tree, file_path):
         """Check for inefficient data structure usage."""
@@ -366,7 +451,7 @@ class PerformanceAnalyzer:
                 {
                     "type": "inefficient_data_structure",
                     "file": path,
-                    "severity": "low",
+                    "severity": SeverityLevel.LOW,
                     "lines": sorted(set(lines)),
                     "count": len(lines),
                     "description": f'{issue_type.replace("_", " ").title()} detected at {len(lines)} locations in "{os.path.basename(path)}"',
@@ -396,14 +481,13 @@ class PerformanceAnalyzer:
                     self.findings.append(
                         {
                             "type": "regex_compilation",
-                            "severity": "low",
+                            "severity": SeverityLevel.LOW,
                             "file": file_path,
                             "line": i,
                             "description": "Regex compilation inside function - consider module-level compilation",
                             "suggestion": "Compile regex patterns at module level for better performance",
                         }
                     )
-                    self.score -= 2
 
             # Check for multiple regex operations that could be optimized
             regex_count = sum(
@@ -413,11 +497,10 @@ class PerformanceAnalyzer:
                 self.findings.append(
                     {
                         "type": "multiple_regex",
-                        "severity": "low",
+                        "severity": SeverityLevel.LOW,
                         "file": file_path,
                         "line": i,
                         "description": "Multiple regex operations on same line",
                         "suggestion": "Consider combining regex patterns or pre-compiling for efficiency",
                     }
                 )
-                self.score -= 1
