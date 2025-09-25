@@ -652,7 +652,7 @@ rules:
             severity=self._map_bandit_severity(severity),
             confidence_score=self._map_bandit_confidence(confidence),
             location=CodeLocation(
-                file_path=file_path,
+                file_path="/".join(file_path.split("/")[-2:]),
                 line_number=line_number,
                 column=issue.get("col_offset", 0),
             ),
@@ -693,7 +693,7 @@ rules:
             severity=self._get_mypy_severity_mapping(codes[0]),
             confidence_score=0.9,  # MyPy is quite reliable
             location=CodeLocation(
-                file_path=filepath,
+                file_path="/".join(filepath.split("/")[-2:]),
                 line_number=line_num,
             ),
             rule_id=error_code,
@@ -718,7 +718,7 @@ rules:
             severity=SeverityLevel.MEDIUM,
             confidence_score=0.8,
             location=CodeLocation(
-                file_path=file_path,
+                file_path="/".join(file_path.split("/")[-2:]),
                 line_number=line,
             ),
             rule_id="open-without-try-except",
@@ -757,7 +757,7 @@ rules:
             severity=SeverityLevel.LOW if not is_df else SeverityLevel.INFO,
             confidence_score=0.7,  # Could be intentional
             location=CodeLocation(
-                file_path=file_path,
+                file_path="/".join(file_path.split("/")[-2:]),
                 line_number=line_num,
             ),
             rule_id="dict-access-without-get",
@@ -785,7 +785,7 @@ rules:
             category=FindingCategory.SECURITY,
             severity=SeverityLevel.MEDIUM,
             confidence_score=0.6,
-            location=CodeLocation(file_path=file_path),
+            location=CodeLocation(file_path="/".join(file_path.split("/")[-2:])),
             source_analyzer=self.name,
             extra_data={"bandit_output": output},
         )

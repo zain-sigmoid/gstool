@@ -296,7 +296,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
 
         # Create code location
         location = CodeLocation(
-            file_path=file_path,
+            file_path="/".join(file_path.split("/")[-2:]),
             line_number=line_number,
             end_line_number=gitleaks_result.get("EndLine"),
         )

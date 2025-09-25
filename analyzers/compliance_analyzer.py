@@ -112,7 +112,7 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
                 description=finding.get("description", ""),
                 confidence_score=0.8,
                 location=CodeLocation(
-                    file_path=finding.get("file", ""),
+                    file_path="/".join(finding.get("file", "").split("/")[-2:]),
                     line_number=finding.get("line", 0),
                 ),
                 remediation_guidance=finding.get("suggestion", ""),
