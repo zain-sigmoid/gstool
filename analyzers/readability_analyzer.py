@@ -166,6 +166,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             )
 
         except Exception as e:
+            traceback.print_exc()
             logger.error(f"Readability analysis failed: {str(e)}")
             error_count += 1
             execution_time = asyncio.get_event_loop().time() - start_time
@@ -400,7 +401,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             result = subprocess.run(
                 [
                     "pylint",
-                    file_path,
+                    os.fspath(file_path),
                     "-f",
                     "json2",
                     "--disable=all",
