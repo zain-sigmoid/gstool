@@ -37,6 +37,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
     def __init__(self):
         super().__init__("hardcoded_secrets", "1.0.0")
         self.cwe_mapping = self._initialize_cwe_mapping()
+        self.gitleaks = "gitleaks"
 
     def get_supported_file_types(self) -> List[str]:
         """Return supported file types (all files for secrets scanning)."""
@@ -133,18 +134,22 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
     def _check_gitleaks_available(self) -> bool:
         """Check if Gitleaks is available in the system."""
         try:
+            gitleaks_bin = ensure_gitleaks()
+            self.gitleaks = gitleaks_bin
             result = subprocess.run(
-                ["gitleaks", "version"], capture_output=True, text=True, timeout=10
+                [gitleaks_bin, "version"], capture_output=True, text=True, timeout=10
             )
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
+            traceback.print_exc()
+            logger.error("Gitleaks error")
             return False
 
     def _get_gitleaks_version(self) -> Optional[str]:
         """Get Gitleaks version."""
         try:
             result = subprocess.run(
-                ["gitleaks", "version"], capture_output=True, text=True, timeout=10
+                [self.gitleaks, "version"], capture_output=True, text=True, timeout=10
             )
             if result.returncode == 0:
                 return result.stdout.strip()
@@ -172,7 +177,6 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
                 report_path = temp_file.name
             gitleaks_toml_path = "utils/gitleaks.toml"
             gitleaks_toml_path = os.path.abspath(gitleaks_toml_path)
-            gitleaks_bin = ensure_gitleaks()
             # Build Gitleaks command
             # command = [
             #     "gitleaks",
@@ -186,7 +190,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
             # ]
             # using gitleaks v8.1+ command which also accepts custom rules
             commandv2 = [
-                gitleaks_bin,
+                self.gitleaks,
                 "dir",
                 source_path,
                 "-c",
