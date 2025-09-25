@@ -205,11 +205,23 @@ class ConsolidatedCodeReviewApp:
                 st.success(f"Unzipped Successfully")
                 st.session_state.resolved_target_path = project_root
         else:
-            target_path = st.text_input(
-                "File Path:",
-                placeholder="/path/to/your/file.py",
-                help="Enter the full path to the file to analyze",
-            )
+            # target_path = st.text_input(
+            #     "File Path:",
+            #     placeholder="/path/to/your/file.py",
+            #     help="Enter the full path to the file to analyze",
+            # )
+            uploaded = st.file_uploader("Upload your python file", type=["py"])
+            if uploaded:
+                dest = Path("/tmp/single_file")  # writable temp dir
+                dest.mkdir(parents=True, exist_ok=True)
+
+                file_path = dest / uploaded.name
+                with open(file_path, "wb") as f:
+                    f.write(uploaded.read())
+
+                st.success(f"Uploaded file: {'/'.join(str(file_path).split('/')[-2:])}")
+                target_path = str(file_path)
+                st.session_state.resolved_target_path = target_path
 
         # Analyzer selection
         st.subheader("🔧 Analyzers")
