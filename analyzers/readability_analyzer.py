@@ -497,6 +497,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
         # Check overall readability score
         overall_score = analysis_results["overall_readability_score"]
         minimum_threshold = config.get("minimum_readability_score", 75.0)
+        target_path = str(target_path)
         spf = "/".join(target_path.split("/")[-2:])
 
         if overall_score < minimum_threshold:
