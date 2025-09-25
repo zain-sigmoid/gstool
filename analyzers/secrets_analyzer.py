@@ -140,6 +140,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
             result = subprocess.run(
                 [gitleaks_bin, "version"], capture_output=True, text=True, timeout=10
             )
+            logger.info(result)
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
             traceback.print_exc()
