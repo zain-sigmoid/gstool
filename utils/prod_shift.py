@@ -60,7 +60,7 @@ def ensure_gitleaks():
         os.chmod(GITLEAKS_PATH, 0o755)
         logger.info("Gitleaks setup seccessfull")
 
-    return GITLEAKS_PATH
+    return str(GITLEAKS_PATH)
 
 class Extract:
     CODE_EXTS = (".py",)  

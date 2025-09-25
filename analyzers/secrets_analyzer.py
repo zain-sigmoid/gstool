@@ -136,7 +136,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
         try:
             gitleaks_bin = ensure_gitleaks()
             self.gitleaks = gitleaks_bin
-            logger.info(f"Gitleaks path:{self.gitleaks}")
+            logger.info(f"Gitleaks path:{self.gitleaks}, type:{type(self.gitleaks)}")
             result = subprocess.run(
                 [gitleaks_bin, "version"], capture_output=True, text=True, timeout=10
             )
@@ -243,6 +243,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
             logger.error("Gitleaks scan timed out")
             return []
         except Exception as e:
+            traceback.print_exc()
             logger.error(f"Gitleaks scan failed: {str(e)}")
             return []
 
