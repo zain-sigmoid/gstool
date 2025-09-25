@@ -12,8 +12,12 @@ import time
 import logging
 import re
 from termcolor import colored
-from typing import Dict, Any, List, Optional
+from typing import List
 from pathlib import Path
+from utils.prod_shift import Extract
+import zipfile
+import shutil
+import io
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -125,6 +129,8 @@ class ConsolidatedCodeReviewApp:
             )
         if "show_glossary" not in st.session_state:
             st.session_state.show_glossary = False
+        if "resolved_target_path" not in st.session_state:
+            st.session_state.resolved_target_path = ""
 
     def run(self):
         """Run the main application."""
@@ -170,20 +176,31 @@ class ConsolidatedCodeReviewApp:
     def _render_sidebar(self):
         """Render the sidebar configuration."""
         st.header("📋 Analysis Configuration")
+        CODE_EXTS = (".py",)
 
         # Target selection
         target_type = st.radio(
             "Analysis Target:",
-            ["📁 Directory/Project", "📄 Single File"],
+            ["📁 Project Zip File", "📄 Single File"],
             help="Choose whether to analyze a directory or single file",
         )
 
-        if target_type == "📁 Directory/Project":
-            target_path = st.text_input(
-                "Directory Path:",
-                placeholder="/path/to/your/project",
-                help="Enter the full path to the directory to analyze",
-            )
+        if target_type == "📁 Project Zip File":
+            # target_path = st.text_input(
+            #     "Directory Path:",
+            #     placeholder="/path/to/your/project",
+            #     help="Enter the full path to the directory to analyze",
+            # )
+            target_path = st.file_uploader("Upload your project as a .zip", type=["zip"])
+            if target_path is not None:
+                dest = Path("/tmp/user_project")
+                if dest.exists():
+                    shutil.rmtree(dest)
+                with zipfile.ZipFile(io.BytesIO(target_path.read())) as z:
+                    Extract.safe_extract_zip(z,dest)
+                project_root = Extract.find_best_project_root(dest, CODE_EXTS)
+                st.success(f"Unzipped Successfully")
+                st.session_state.resolved_target_path = project_root
         else:
             target_path = st.text_input(
                 "File Path:",
@@ -253,12 +270,13 @@ class ConsolidatedCodeReviewApp:
         if st.button(
             "🚀 Run Analysis",
             type="primary",
-            disabled=st.session_state.analysis_running or not target_path,
+            disabled=st.session_state.analysis_running or not st.session_state.resolved_target_path,
             help="Start comprehensive code analysis",
         ):
-            if target_path and os.path.exists(target_path):
+            analysis_root = st.session_state.resolved_target_path
+            if target_path and os.path.exists(analysis_root):
                 self._run_analysis(
-                    target_path=target_path,
+                    target_path=analysis_root,
                     selected_analyzers=set(selected_analyzers),
                     parallel_execution=parallel_execution,
                     include_low_confidence=include_low_confidence,
@@ -310,7 +328,7 @@ class ConsolidatedCodeReviewApp:
 
         # Create analysis configuration
         config = AnalysisConfiguration(
-            target_path=target_path,
+            target_path=st.session_state.resolved_target_path,
             enabled_analyzers=selected_analyzers,
             severity_threshold=SeverityLevel.INFO,  # Always capture all severities
             parallel_execution=parallel_execution,
