@@ -136,6 +136,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
         try:
             gitleaks_bin = ensure_gitleaks()
             self.gitleaks = gitleaks_bin
+            logger.info(f"Gitleaks path:{self.gitleaks}")
             result = subprocess.run(
                 [gitleaks_bin, "version"], capture_output=True, text=True, timeout=10
             )
