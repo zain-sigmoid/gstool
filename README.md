@@ -1,5 +1,5 @@
 # Code Quality and Security Check Tool
-## A single Streamlit homepage that links to focused code-quality apps (Maintainability, Readability, Robustness, Compliance, Hardcoded rules, etc.). Compact horizontal cards show issue counts; small tiles open each check.
+A single Streamlit homepage that links to focused code-quality apps (Maintainability, Readability, Robustness, Compliance, Hardcoded rules, etc.). Compact horizontal cards show issue counts; small tiles open each check.
 
 ## ✨ Features
 - Homepage hub with compact severity cards (High/Medium/Low/Info) and horizontal nav tiles
