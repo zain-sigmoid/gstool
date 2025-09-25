@@ -63,7 +63,8 @@ def ensure_gitleaks():
     return str(GITLEAKS_PATH)
 
 class Extract:
-    CODE_EXTS = (".py",)  
+    CODE_EXTS = (".py",) 
+     
     @staticmethod
     def safe_extract_zip(zf: zipfile.ZipFile, dest: Path, ignore_hidden_top_level=True):
       """Safely extract ZIP into dest, preventing zip-slip.
