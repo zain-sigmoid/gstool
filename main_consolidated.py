@@ -1,0 +1,1186 @@
+"""
+Consolidated Code Review Tool - Main Application
+Unified interface for all code analysis modules.
+"""
+
+# Flake8: noqa: E501
+
+import streamlit as st
+import asyncio
+import os
+import time
+import logging
+import re
+from termcolor import colored
+from typing import Dict, Any, List, Optional
+from pathlib import Path
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Import core components
+from core.engine import UnifiedAnalysisEngine
+from core.models import (
+    AnalysisConfiguration,
+    ConsolidatedReport,
+    SeverityLevel,
+    FindingCategory,
+    UnifiedFinding,
+)
+from core.interfaces import analyzer_registry
+
+# Import analyzers
+from analyzers.secrets_analyzer import HardcodedSecretsAnalyzer
+
+# Page configuration
+st.set_page_config(
+    page_title="Consolidated Code Review Tool",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+
+class ConsolidatedCodeReviewApp:
+    """Main application class for the consolidated code review tool."""
+
+    def __init__(self):
+        self.engine = UnifiedAnalysisEngine()
+        self._initialize_analyzers()
+        self._initialize_session_state()
+
+    def _initialize_analyzers(self):
+        """Initialize and register all analyzers."""
+        # Register hardcoded secrets analyzer
+        secrets_analyzer = HardcodedSecretsAnalyzer()
+        analyzer_registry.register(secrets_analyzer)
+
+        # Register robustness analyzer
+        from analyzers.robustness_analyzer import RobustnessAnalyzer
+
+        robustness_analyzer = RobustnessAnalyzer()
+        analyzer_registry.register(robustness_analyzer)
+
+        # Register PII/PHI analyzer
+        from analyzers.pii_analyzer import PIIAnalyzer
+
+        pii_analyzer = PIIAnalyzer()
+        analyzer_registry.register(pii_analyzer)
+
+        # Register testability analyzer
+        from analyzers.testability_analyzer import TestabilityAnalyzer
+
+        testability_analyzer = TestabilityAnalyzer()
+        analyzer_registry.register(testability_analyzer)
+
+        # Register observability analyzer
+        from analyzers.observability_analyzer import ObservabilityAnalyzer
+
+        observability_analyzer = ObservabilityAnalyzer()
+        analyzer_registry.register(observability_analyzer)
+
+        # Register readability analyzer
+        from analyzers.readability_analyzer import ReadabilityAnalyzer
+
+        readability_analyzer = ReadabilityAnalyzer()
+        analyzer_registry.register(readability_analyzer)
+
+        # Register injection analyzer
+        from analyzers.injection_analyzer import InjectionAnalyzer
+
+        injection_analyzer = InjectionAnalyzer()
+        analyzer_registry.register(injection_analyzer)
+
+        from analyzers.maintainability_analyzer import MaintainabilityAnalyzer
+
+        maintainability_analyzer = MaintainabilityAnalyzer()
+        analyzer_registry.register(maintainability_analyzer)
+
+        from analyzers.performance_analyzer import PerformanceAnalyzer
+
+        performance_analyzer = PerformanceAnalyzer()
+        analyzer_registry.register(performance_analyzer)
+
+        from analyzers.compliance_analyzer import ComplianceAnalyzer
+
+        compliance_analyzer = ComplianceAnalyzer()
+        analyzer_registry.register(compliance_analyzer)
+
+        logger.info(
+            f"Registered {len(analyzer_registry.list_analyzer_names())} analyzers"
+        )
+
+    def _initialize_session_state(self):
+        """Initialize Streamlit session state."""
+        if "current_report" not in st.session_state:
+            st.session_state.current_report = None
+        if "analysis_history" not in st.session_state:
+            st.session_state.analysis_history = []
+        if "analysis_running" not in st.session_state:
+            st.session_state.analysis_running = False
+        if "selected_analyzers_count" not in st.session_state:
+            st.session_state.selected_analyzers_count = len(
+                analyzer_registry.get_all_analyzers()
+            )
+        if "show_glossary" not in st.session_state:
+            st.session_state.show_glossary = False
+
+    def run(self):
+        """Run the main application."""
+        self._render_header()
+
+        # Sidebar for configuration
+        with st.sidebar:
+            self._render_sidebar()
+
+        # Main content area
+        if st.session_state.get("show_glossary", False):
+            # Clear the flag and show glossary
+            st.session_state.show_glossary = False
+            self._render_glossary_faq()
+        elif st.session_state.current_report:
+            self._render_analysis_results()
+        else:
+            self._render_welcome_screen()
+
+    def _render_header(self):
+        """Render the application header."""
+        st.title("🔍 Code Review Tool")
+        st.markdown(
+            """
+        **Unified analysis platform** combining multiple security, quality, and compliance checkers.
+        
+        - 🔐 **Security Analysis**: Secrets, vulnerabilities, injection attacks
+        - 🛡️ **Privacy Compliance**: PII/PHI detection, GDPR/HIPAA compliance  
+        - 📊 **Code Quality**: Readability, maintainability, performance
+        - 🧪 **Testing & Observability**: Test coverage, logging analysis
+        - 🧰 **Maintainability**: Cyclomatic Complexity, Maintainability Index
+        - ⚙️ **Performance**: Inefficient code patterns, resource usage
+        """
+        )
+
+        # Status indicator
+        if st.session_state.analysis_running:
+            st.info("🔄 Analysis in progress...")
+        elif st.session_state.current_report:
+            findings_count = len(st.session_state.current_report.findings)
+            st.success(f"✅ Analysis complete - {findings_count} findings")
+
+    def _render_sidebar(self):
+        """Render the sidebar configuration."""
+        st.header("📋 Analysis Configuration")
+
+        # Target selection
+        target_type = st.radio(
+            "Analysis Target:",
+            ["📁 Directory/Project", "📄 Single File"],
+            help="Choose whether to analyze a directory or single file",
+        )
+
+        if target_type == "📁 Directory/Project":
+            target_path = st.text_input(
+                "Directory Path:",
+                placeholder="/path/to/your/project",
+                help="Enter the full path to the directory to analyze",
+            )
+        else:
+            target_path = st.text_input(
+                "File Path:",
+                placeholder="/path/to/your/file.py",
+                help="Enter the full path to the file to analyze",
+            )
+
+        # Analyzer selection
+        st.subheader("🔧 Analyzers")
+        available_analyzers = analyzer_registry.list_analyzer_names()
+
+        if available_analyzers:
+            selected_analyzers = st.multiselect(
+                "Select Analyzers:",
+                available_analyzers,
+                default=available_analyzers,
+                help="Choose which analyzers to run",
+                key="selected_analyzers",
+            )
+            # Update session state with selected analyzers count
+            st.session_state.selected_analyzers_count = len(selected_analyzers)
+        else:
+            st.warning("No analyzers available")
+            selected_analyzers = []
+            st.session_state.selected_analyzers_count = 0
+
+        # Analysis options
+        st.subheader("⚙️ Options")
+
+        st.info(
+            "💡 **Tip**: All severity levels are captured during analysis. You can filter results after analysis is complete."
+        )
+
+        parallel_execution = st.checkbox(
+            "Parallel Execution",
+            value=True,
+            help="Run analyzers in parallel for faster execution",
+        )
+
+        include_low_confidence = st.checkbox(
+            "Include Low Confidence",
+            value=False,
+            help="Include findings with low confidence scores",
+        )
+
+        # Advanced options
+        with st.expander("🔬 Advanced Options"):
+            timeout_seconds = st.slider(
+                "Timeout (seconds):",
+                min_value=30,
+                max_value=600,
+                value=300,
+                help="Maximum time to wait for analysis completion",
+            )
+
+            max_findings = st.number_input(
+                "Max Findings per Analyzer:",
+                min_value=10,
+                max_value=10000,
+                value=1000,
+                help="Limit the number of findings per analyzer",
+            )
+
+        # Run analysis button
+        st.markdown("---")
+
+        if st.button(
+            "🚀 Run Analysis",
+            type="primary",
+            disabled=st.session_state.analysis_running or not target_path,
+            help="Start comprehensive code analysis",
+        ):
+            if target_path and os.path.exists(target_path):
+                self._run_analysis(
+                    target_path=target_path,
+                    selected_analyzers=set(selected_analyzers),
+                    parallel_execution=parallel_execution,
+                    include_low_confidence=include_low_confidence,
+                    timeout_seconds=timeout_seconds,
+                    max_findings=max_findings,
+                )
+            else:
+                st.error("Please provide a valid file or directory path")
+
+        # Analysis history
+        if st.session_state.analysis_history:
+            st.subheader("📚 Analysis History")
+            for i, report in enumerate(
+                reversed(st.session_state.analysis_history[-5:])
+            ):
+                timestamp = report.timestamp.strftime("%Y-%m-%d %H:%M")
+                findings_count = len(report.findings)
+
+                if st.button(
+                    f"{timestamp} ({findings_count} findings)",
+                    key=f"history_{i}",
+                    help="Load this analysis result",
+                ):
+                    st.session_state.current_report = report
+                    st.rerun()
+
+        # Help section
+        st.markdown("---")
+        st.subheader("❓ Need Help?")
+
+        if st.button(
+            "📚 Open Glossary & FAQ", help="Access comprehensive help and documentation"
+        ):
+            # Set a session state to show glossary
+            st.session_state.show_glossary = True
+            st.rerun()
+
+    def _run_analysis(
+        self,
+        target_path: str,
+        selected_analyzers: set,
+        parallel_execution: bool,
+        include_low_confidence: bool,
+        timeout_seconds: int,
+        max_findings: int,
+    ):
+        """Run the analysis with given configuration."""
+        st.session_state.analysis_running = True
+
+        # Create analysis configuration
+        config = AnalysisConfiguration(
+            target_path=target_path,
+            enabled_analyzers=selected_analyzers,
+            severity_threshold=SeverityLevel.INFO,  # Always capture all severities
+            parallel_execution=parallel_execution,
+            include_low_confidence=include_low_confidence,
+            timeout_seconds=timeout_seconds,
+            max_findings_per_analyzer=max_findings,
+        )
+
+        # Show progress
+        progress_placeholder = st.empty()
+        with progress_placeholder.container():
+            st.info("🔄 Starting analysis...")
+            progress_bar = st.progress(0)
+
+        try:
+            # Run analysis (using asyncio for async function)
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            report = loop.run_until_complete(self.engine.analyze(config))
+
+            # Update session state
+            st.session_state.current_report = report
+            st.session_state.analysis_history.append(report)
+            st.session_state.analysis_running = False
+
+            # Clear progress indicator
+            progress_placeholder.empty()
+
+            # Success message
+            st.success(f"✅ Analysis completed! Found {len(report.findings)} findings.")
+            st.rerun()
+
+        except Exception as e:
+            logger.error(f"Analysis failed: {str(e)}")
+            st.session_state.analysis_running = False
+            progress_placeholder.empty()
+            st.error(f"❌ Analysis failed: {str(e)}")
+
+    def _render_welcome_screen(self):
+        """Render the welcome screen when no analysis has been run."""
+        col1, col2 = st.columns([2, 1])
+
+        with col1:
+            st.markdown("## 👋 Welcome to the Code Review Tool")
+
+            st.markdown(
+                """
+            This unified platform combines multiple specialized analyzers to provide 
+            comprehensive code analysis across security, quality, privacy, and compliance dimensions.
+            
+            ### 🚀 Getting Started
+            
+            1. **Select your target** in the sidebar (file or directory)
+            2. **Choose analyzers** to run based on your needs
+            3. **Configure options** like execution mode and confidence settings
+            4. **Run analysis** and review the consolidated results
+            
+            ### 🔍 Available Analysis Types
+            """
+            )
+
+            # Show available analyzers
+            analyzers = analyzer_registry.get_all_analyzers()
+            for analyzer in analyzers:
+                with st.expander(f"🔧 {analyzer.get_name().replace('_', ' ').title()}"):
+                    st.write(f"**Version:** {analyzer.get_version()}")
+                    st.write(
+                        f"**Status:** {'✅ Enabled' if analyzer.is_enabled() else '❌ Disabled'}"
+                    )
+
+                    if hasattr(analyzer, "get_security_categories"):
+                        categories = analyzer.get_security_categories()
+                        if categories:
+                            st.write(f"**Categories:** {', '.join(categories)}")
+
+        with col2:
+            st.markdown("## 📊 Quick Stats")
+
+            # Show analyzer statistics
+            total_analyzers = len(analyzer_registry.get_all_analyzers())
+            selected_count = st.session_state.get(
+                "selected_analyzers_count", total_analyzers
+            )
+
+            st.metric("Total Analyzers", total_analyzers)
+            st.metric("Selected Analyzers", selected_count)
+
+            if st.session_state.analysis_history:
+                st.metric("Previous Analyses", len(st.session_state.analysis_history))
+
+    def _render_analysis_results(self):
+        """Render the analysis results."""
+        report = st.session_state.current_report
+
+        # Summary section
+        self._render_executive_summary(report)
+
+        # Create tabs for different views
+        tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+            [
+                "🔍 All Findings",
+                "📊 Dashboard",
+                "🗂️ By Category",
+                "📈 Metrics",
+                "📋 Export",
+                "📚 Glossary & FAQ",
+            ]
+        )
+
+        with tab1:
+            self._render_all_findings(report)
+
+        with tab2:
+            self._render_dashboard(report)
+
+        with tab3:
+            self._render_findings_by_category(report)
+
+        with tab4:
+            self._render_metrics(report)
+
+        with tab5:
+            self._render_export_options(report)
+
+        with tab6:
+            self._render_glossary_faq()
+
+    def _render_executive_summary(self, report: ConsolidatedReport):
+        """Render executive summary."""
+        st.markdown("## 📋 Executive Summary")
+
+        summary_stats = report.get_summary_stats()
+
+        # Key metrics
+        col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+
+        with col1:
+            st.metric("Total Findings", summary_stats["total_findings"])
+
+        with col2:
+            st.metric(
+                "Critical", summary_stats["critical_findings"], delta_color="inverse"
+            )
+
+        with col3:
+            st.metric("High", summary_stats["high_findings"], delta_color="inverse")
+
+        with col4:
+            st.metric("Medium", summary_stats["medium_findings"])
+
+        with col5:
+            st.metric("Low", summary_stats["low_findings"])
+
+        with col6:
+            st.metric("Info", summary_stats["info_findings"])
+
+        with col7:
+            st.metric("Analysis Time", f"{report.total_execution_time:.1f}s")
+
+        # Risk assessment
+        if summary_stats["critical_findings"] > 0:
+            st.error("🚨 **Critical issues found** - Immediate attention required")
+        elif summary_stats["high_findings"] > 0:
+            st.warning("⚠️ **High severity issues found** - Should be addressed soon")
+        elif summary_stats["total_findings"] > 0:
+            st.info("ℹ️ **Issues found** - Review and address as needed")
+        else:
+            st.success("✅ **No issues found** - Code looks good!")
+
+    def _base_type(self, title: str) -> str:
+        if not title:
+            return ""
+        if ":" in title:
+            part_after = title.split(":", 1)[1].strip()
+        else:
+            part_after = title.strip()
+        return part_after
+
+    def _render_all_findings(self, report: ConsolidatedReport):
+        """Render all findings in a list."""
+        findings = report.findings
+
+        if not findings:
+            st.info("🎉 No findings to display!")
+            return
+        # titles = {f.title for f in findings}
+        titles = {self._base_type(f.title) for f in findings}
+
+        # Filters
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            severity_filter = st.multiselect(
+                "Filter by Severity:",
+                [s.value.title() for s in SeverityLevel],
+                default=[s.value.title() for s in SeverityLevel],
+            )
+            search_term = st.text_input(
+                "🔍 Search findings:", placeholder="Enter search term..."
+            )
+
+        with col2:
+            category_filter = st.multiselect(
+                "Filter by Category:",
+                [c.value.title() for c in FindingCategory],
+                default=[c.value.title() for c in FindingCategory],
+            )
+
+        with col3:
+            options = ["All"] + sorted(titles)
+            finding_type_filter = st.selectbox(
+                "Filter by Type:",
+                options,  # titles is already set of strings
+                index=0,
+                # default=sorted(titles),
+            )
+
+        # Apply filters
+        filtered_findings = self._apply_finding_filters(
+            findings, severity_filter, category_filter, search_term, finding_type_filter
+        )
+
+        st.write(f"Showing {len(filtered_findings)} of {len(findings)} findings")
+
+        # Display findings
+        for i, finding in enumerate(filtered_findings):
+            self._render_single_finding(finding, i)
+
+    def _render_vars(self, value):
+        if isinstance(value, list):
+            # render each element as bullet
+            st.markdown("\n".join(f"- {d}" for d in value))
+
+        elif isinstance(value, dict):
+            # nice collapsible JSON viewer
+            st.markdown(f"**Details**")
+            st.json(value)
+
+        elif isinstance(value, str):
+            # plain text
+            st.markdown(f"**Details:** {value}")
+
+        else:
+            # fallback: just dump
+            st.write(f"**Details:** {value}")
+
+    def _render_single_finding(self, finding: UnifiedFinding, index: int):
+        """Render a single finding."""
+        # Severity color mapping
+        severity_colors = {
+            SeverityLevel.CRITICAL: "#ff4444",
+            SeverityLevel.HIGH: "#ff8800",
+            SeverityLevel.MEDIUM: "#ffaa00",
+            SeverityLevel.LOW: "#00aa44",
+            SeverityLevel.INFO: "#0088cc",
+        }
+
+        severity_color = severity_colors.get(finding.severity, "#666666")
+
+        with st.expander(
+            f"**{finding.severity.value.upper()}** - {finding.title}",
+            expanded=index < 5,  # Expand first 5 findings
+        ):
+            TARGET = "Maintainability Issue: Complexity Risk Ranking"
+            col1, col2 = st.columns([3, 1])
+
+            with col1:
+                st.markdown(f"**Description:** {finding.description}")
+
+                if finding.details is not None:
+                    details = finding.details
+                    self._render_vars(details)
+
+                if finding.location.file_path:
+                    location_str = f"{finding.location.file_path}"
+                    if finding.location.line_number:
+                        location_str += f":{finding.location.line_number}"
+                    st.markdown(f"**Location:** `{location_str}`")
+
+                if finding.code_snippet:
+                    num_lines = finding.code_snippet.count("\n") + 1
+                    height = 100 if num_lines > 3 else None
+                    st.markdown("**Code:**")
+                    st.code(finding.code_snippet, wrap_lines=True, height=height)
+
+                if finding.remediation_guidance:
+                    st.markdown(f"**Remediation:** {finding.remediation_guidance}")
+
+            with col2:
+                st.markdown(f"**Category:** {finding.category.value.title()}")
+                st.markdown(f"**Analyzer:** {finding.source_analyzer}")
+                st.markdown(f"**Confidence:** {finding.confidence_score:.0%}")
+
+                if finding.cwe_id:
+                    st.markdown(f"**CWE:** {finding.cwe_id}")
+
+                if finding.compliance_frameworks:
+                    st.markdown(
+                        f"**Compliance:** {', '.join(finding.compliance_frameworks)}"
+                    )
+
+    def _render_dashboard(self, report: ConsolidatedReport):
+        """Render dashboard view."""
+        st.markdown("## 📊 Analysis Dashboard")
+
+        # TODO: Implement dashboard with charts and visualizations
+        st.info(
+            "Dashboard with charts and visualizations will be implemented in Phase 4"
+        )
+
+        # For now, show basic statistics
+        summary_stats = report.get_summary_stats()
+
+        # Severity breakdown chart
+        st.subheader("Severity Distribution")
+        severity_data = {
+            "Critical": summary_stats["critical_findings"],
+            "High": summary_stats["high_findings"],
+            "Medium": summary_stats["medium_findings"],
+            "Low": summary_stats["low_findings"],
+            "Info": summary_stats["info_findings"],
+        }
+        st.bar_chart(severity_data)
+
+        # Category breakdown
+        st.subheader("Category Distribution")
+        category_data = {
+            category.value.title(): summary_stats.get(f"{category.value}_findings", 0)
+            for category in FindingCategory
+        }
+        st.bar_chart(category_data)
+
+    def _render_findings_by_category(self, report: ConsolidatedReport):
+        """Render findings organized by category."""
+        st.markdown("## 🗂️ Findings by Category")
+
+        for category in FindingCategory:
+            category_findings = report.get_findings_by_category(category)
+
+            if category_findings:
+                with st.expander(
+                    f"**{category.value.title()}** ({len(category_findings)} findings)"
+                ):
+                    for finding in category_findings[:10]:  # Show first 10
+                        self._render_single_finding(finding, 0)
+
+                    if len(category_findings) > 10:
+                        st.info(f"... and {len(category_findings) - 10} more findings")
+
+    def _render_metrics(self, report: ConsolidatedReport):
+        """Render analysis metrics."""
+        st.markdown("## 📈 Analysis Metrics")
+
+        # Analyzer performance
+        st.subheader("Analyzer Performance")
+
+        metrics_data = []
+        for metric in report.analysis_metrics:
+            metrics_data.append(
+                {
+                    "Analyzer": metric.analyzer_name,
+                    "Execution Time (s)": f"{metric.execution_time_seconds:.2f}",
+                    "Files Analyzed": metric.files_analyzed,
+                    "Findings": metric.findings_count,
+                    "Status": "✅ Success" if metric.success else "❌ Failed",
+                }
+            )
+
+        if metrics_data:
+            st.table(metrics_data)
+
+        # Summary metrics
+        st.subheader("Summary")
+        st.json(report.get_summary_stats())
+
+    def _render_export_options(self, report: ConsolidatedReport):
+        """Render export options."""
+        st.markdown("## 📋 Export Results")
+
+        # TODO: Implement export functionality
+        st.info("Export functionality will be enhanced in later phases")
+
+        if st.button("📄 Download JSON Report"):
+            # Basic JSON export
+            import json
+
+            report_dict = {
+                "timestamp": report.timestamp.isoformat(),
+                "target_path": report.target_path,
+                "total_findings": len(report.findings),
+                "findings": [
+                    {
+                        "title": f.title,
+                        "description": f.description,
+                        "severity": f.severity.value,
+                        "category": f.category.value,
+                        "file": f.location.file_path,
+                        "line": f.location.line_number,
+                    }
+                    for f in report.findings
+                ],
+            }
+
+            st.download_button(
+                "Download JSON",
+                json.dumps(report_dict, indent=2),
+                file_name=f"code_review_report_{report.timestamp.strftime('%Y%m%d_%H%M%S')}.json",
+                mime="application/json",
+            )
+
+    def _apply_finding_filters(
+        self,
+        findings: List[UnifiedFinding],
+        severity_filter: List[str],
+        category_filter: List[str],
+        search_term: str,
+        finding_type_filter: List[str],
+    ) -> List[UnifiedFinding]:
+        """Apply filters to findings list."""
+        filtered = findings
+
+        def _lc(x):
+            return (x or "").strip().lower()
+
+        # Severity filter
+        if severity_filter:
+            severity_values = [s.lower() for s in severity_filter]
+            filtered = [f for f in filtered if f.severity.value in severity_values]
+
+        # Category filter
+        if category_filter:
+            category_values = [c.lower() for c in category_filter]
+            filtered = [f for f in filtered if f.category.value in category_values]
+
+        # Search filter
+        if search_term:
+            search_lower = search_term.lower()
+            filtered = [
+                f
+                for f in filtered
+                if search_lower in f.title.lower()
+                or search_lower in f.description.lower()
+                or search_lower in f.location.file_path.lower()
+            ]
+        if finding_type_filter and finding_type_filter != "All":
+            type_values = {_lc(finding_type_filter)}
+            filtered = [
+                f
+                for f in filtered
+                if _lc(self._base_type(getattr(f, "title", ""))) in type_values
+            ]
+
+        return filtered
+
+    def _render_glossary_faq(self):
+        """Render the glossary and FAQ section."""
+        # Add back button
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("← Back to Home", help="Return to the main page"):
+                st.session_state.show_glossary = False
+                st.rerun()
+
+        with col2:
+            st.markdown("## 📚 Glossary & FAQ")
+
+        # Create tabs for different FAQ categories
+        faq_tab1, faq_tab2, faq_tab3, faq_tab4 = st.tabs(
+            [
+                "🚀 Getting Started",
+                "🔧 Analyzers Guide",
+                "❓ Common Questions",
+                "📖 Glossary",
+            ]
+        )
+
+        with faq_tab1:
+            self._render_getting_started_faq()
+
+        with faq_tab2:
+            self._render_analyzers_guide()
+
+        with faq_tab3:
+            self._render_common_questions()
+
+        with faq_tab4:
+            self._render_glossary()
+
+    def _render_getting_started_faq(self):
+        """Render getting started FAQ section."""
+        st.markdown("### 🚀 Getting Started Guide")
+
+        st.markdown(
+            """
+        #### How to Navigate the App
+
+        1. **Sidebar Configuration**: Use the sidebar to configure your analysis
+           - Select target (file or directory)
+           - Choose analyzers to run
+           - Configure analysis options
+
+        2. **Main Content Area**: View results and findings
+           - Executive summary with key metrics
+           - Detailed findings in organized tabs
+           - Export options for reports
+
+        3. **Results Tabs**: Explore findings in different ways
+           - **All Findings**: Complete list with filters
+           - **Dashboard**: Visual charts and statistics
+           - **By Category**: Grouped by security/quality categories
+           - **Metrics**: Performance and analysis metrics
+           - **Export**: Download results in various formats
+        """
+        )
+
+        st.markdown("#### How to Run Analysis")
+
+        st.markdown(
+            """
+        **Step-by-Step Process:**
+
+        1. **Select Target**:
+           - Choose between directory or single file analysis
+           - Enter the full path to your target
+           - Example: `/Users/username/projects/my_app`
+
+        2. **Choose Analyzers**:
+           - Select from available security and quality analyzers
+           - All analyzers are enabled by default
+           - You can customize based on your needs
+
+        3. **Configure Options**:
+           - **Parallel Execution**: Run analyzers simultaneously (faster)
+           - **Include Low Confidence**: Include less certain findings
+           - **Timeout**: Maximum analysis time (30-600 seconds)
+           - **Max Findings**: Limit findings per analyzer
+
+        4. **Run Analysis**:
+           - Click "🚀 Run Analysis" button
+           - Monitor progress in the main area
+           - Results appear automatically when complete
+
+        5. **Review Results**:
+           - Check executive summary for overview
+           - Filter findings by severity and category
+           - Export results for further analysis
+        """
+        )
+
+        st.markdown("#### Best Practices")
+
+        st.markdown(
+            """
+        - **Start with all analyzers** to get comprehensive results
+        - **Use parallel execution** for faster analysis of large projects
+        - **Set appropriate timeout** based on project size
+        - **Review critical and high severity findings first**
+        - **Export results** for team sharing and tracking
+        """
+        )
+
+    def _render_analyzers_guide(self):
+        """Render analyzers guide section."""
+        st.markdown("### 🔧 Analyzers Guide")
+
+        analyzers = analyzer_registry.get_all_analyzers()
+
+        for analyzer in analyzers:
+            with st.expander(f"🔧 {analyzer.get_name().replace('_', ' ').title()}"):
+                st.markdown(f"**Version:** {analyzer.get_version()}")
+                st.markdown(
+                    f"**Status:** {'✅ Enabled' if analyzer.is_enabled() else '❌ Disabled'}"
+                )
+
+                # Get analyzer-specific information
+                if hasattr(analyzer, "get_security_categories"):
+                    categories = analyzer.get_security_categories()
+                    if categories:
+                        st.markdown(f"**Security Categories:** {', '.join(categories)}")
+
+                if hasattr(analyzer, "get_quality_categories"):
+                    categories = analyzer.get_quality_categories()
+                    if categories:
+                        st.markdown(f"**Quality Categories:** {', '.join(categories)}")
+
+                if hasattr(analyzer, "get_compliance_frameworks"):
+                    frameworks = analyzer.get_compliance_frameworks()
+                    if frameworks:
+                        st.markdown(
+                            f"**Compliance Frameworks:** {', '.join(frameworks)}"
+                        )
+
+                # Analyzer-specific descriptions
+                analyzer_descriptions = {
+                    "hardcoded_secrets": {
+                        "description": "Detects hardcoded secrets, API keys, passwords, and sensitive credentials in your codebase using Gitleaks.",
+                        "what_it_finds": [
+                            "API keys and tokens",
+                            "Database passwords",
+                            "SSH private keys",
+                            "AWS access keys",
+                            "OAuth secrets",
+                            "Encryption keys",
+                        ],
+                        "tools_used": "Gitleaks",
+                        "severity_focus": "Critical and High severity findings",
+                    },
+                    "pii_phi": {
+                        "description": "Identifies Personally Identifiable Information (PII) and Protected Health Information (PHI) to ensure compliance with data protection regulations.",
+                        "what_it_finds": [
+                            "Email addresses",
+                            "Phone numbers",
+                            "Social Security Numbers",
+                            "Credit card numbers",
+                            "Medical record numbers",
+                            "Driver's license numbers",
+                            "IP addresses",
+                        ],
+                        "compliance": "GDPR, HIPAA, CCPA, PCI DSS",
+                        "severity_focus": "High and Medium severity findings",
+                    },
+                    "readability": {
+                        "description": "Evaluates code readability, style, and maintainability using Pylint and custom checks.",
+                        "what_it_finds": [
+                            "Naming convention violations",
+                            "Missing documentation",
+                            "Code formatting issues",
+                            "Complexity problems",
+                            "Style guide violations",
+                        ],
+                        "tools_used": "Pylint, custom patterns",
+                        "severity_focus": "Medium and Low severity findings",
+                    },
+                    "robustness": {
+                        "description": "Analyzes code robustness, error handling, and defensive programming practices.",
+                        "what_it_finds": [
+                            "Missing error handling",
+                            "Unsafe operations",
+                            "Resource management issues",
+                            "Input validation problems",
+                            "Exception handling gaps",
+                        ],
+                        "severity_focus": "High and Medium severity findings",
+                    },
+                    "testability": {
+                        "description": "Evaluates code testability and suggests improvements for better testing coverage.",
+                        "what_it_finds": [
+                            "Untestable code patterns",
+                            "Missing test coverage",
+                            "Complex dependencies",
+                            "Hard-to-mock components",
+                            "Test infrastructure issues",
+                        ],
+                        "severity_focus": "Medium and Low severity findings",
+                    },
+                    "observability": {
+                        "description": "Analyzes logging, monitoring, and observability practices in your code.",
+                        "what_it_finds": [
+                            "Missing logging statements",
+                            "Inadequate error logging",
+                            "Performance monitoring gaps",
+                            "Debug information issues",
+                            "Observability best practices",
+                        ],
+                        "severity_focus": "Medium and Low severity findings",
+                    },
+                    "injection": {
+                        "description": "Detects potential injection vulnerabilities and unsafe input handling.",
+                        "what_it_finds": [
+                            "SQL injection vulnerabilities",
+                            "Command injection risks",
+                            "XSS vulnerabilities",
+                            "Path traversal issues",
+                            "Unsafe input handling",
+                        ],
+                        "tools_used": "Custom pattern matching",
+                        "severity_focus": "Critical and High severity findings",
+                    },
+                    "maintainability": {
+                        "description": "Assesses code maintainability using metrics like Cyclomatic Complexity and Maintainability Index.",
+                        "what_it_finds": [
+                            "High complexity functions",
+                            "Low maintainability index",
+                            "Code duplication",
+                            "Branches in the code",
+                        ],
+                        "severity_focus": "Medium and Low severity findings",
+                        "image": ["assets/crr.png", "assets/ccinfo.png"],
+                    },
+                    "performance": {
+                        "description": "Identifies performance bottlenecks and inefficient code patterns.",
+                        "what_it_finds": [
+                            "Time Complexity issues",
+                            "Naive Search patterns",
+                            "Naive Sort patterns",
+                            "Inefficient Data Structures",
+                        ],
+                        "severity_focus": "High and Medium severity findings",
+                    },
+                    "compliance": {
+                        "description": "Checks for compliance with various regulatory frameworks and standards.",
+                        "what_it_finds": [
+                            "Copyright violations",
+                            "License issues",
+                            "Data protection compliance",
+                        ],
+                        "tools_used": "Scancode, Semgrep",
+                        "severity_focus": "High severity findings",
+                    },
+                }
+
+                analyzer_name = analyzer.get_name()
+                if analyzer_name in analyzer_descriptions:
+                    desc = analyzer_descriptions[analyzer_name]
+                    st.markdown(f"**Description:** {desc['description']}")
+
+                    st.markdown("**What it finds:**")
+                    for item in desc.get("what_it_finds", []):
+                        st.markdown(f"- {item}")
+
+                    if "tools_used" in desc:
+                        st.markdown(f"**Tools used:** {desc['tools_used']}")
+
+                    if "compliance" in desc:
+                        st.markdown(f"**Compliance:** {desc['compliance']}")
+
+                    if "image" in desc:
+                        st.markdown(
+                            f"**Image** : Complexity Risk Ranking according to percent of Line of code in functions marked by Cyclometic Complexity and Cyclomatic complexity scores"
+                        )
+                        images = desc.get("image")
+                        if isinstance(images, list):  # multiple images
+                            for img in images:
+                                st.image(img)
+                        else:  # single image
+                            st.image(images)
+
+                    st.markdown(
+                        f"**Severity focus:** {desc.get('severity_focus', 'All levels')}"
+                    )
+
+    def _render_common_questions(self):
+        """Render common questions FAQ section."""
+        st.markdown("### ❓ Frequently Asked Questions")
+
+        faqs = [
+            {
+                "question": "How long does analysis take?",
+                "answer": "Analysis time depends on project size and selected analyzers. Small projects (1-10 files) typically take 30-60 seconds. Large projects (100+ files) may take 2-5 minutes. Parallel execution can significantly reduce analysis time.",
+            },
+            {
+                "question": "What file types are supported?",
+                "answer": "Currently, the tool primarily supports Python (.py) files. Some analyzers like the secrets analyzer can scan all file types for hardcoded credentials. Support for additional languages is planned for future releases.",
+            },
+            {
+                "question": "How accurate are the findings?",
+                "answer": "Findings include confidence scores to help you assess accuracy. High confidence findings (80%+) are typically very reliable. Lower confidence findings may be false positives and should be manually reviewed. You can filter by confidence level in the analysis options.",
+            },
+            {
+                "question": "Can I exclude certain files or directories?",
+                "answer": "Yes, you can configure exclusions in the advanced options. Common exclusions include test files, documentation, and third-party libraries. The tool automatically excludes some common patterns like __pycache__ directories.",
+            },
+            {
+                "question": "How do I interpret the severity levels?",
+                "answer": "Severity levels indicate the potential impact of findings:\n- **Critical**: Immediate security/compliance risk\n- **High**: Significant issue requiring prompt attention\n- **Medium**: Moderate issue that should be addressed\n- **Low**: Minor issue or improvement opportunity\n- **Info**: Informational finding with no immediate risk",
+            },
+            {
+                "question": "What compliance frameworks are supported?",
+                "answer": "The tool supports multiple compliance frameworks including GDPR, HIPAA, CCPA, PCI DSS, and various security standards. Each analyzer provides specific compliance mappings for relevant findings.",
+            },
+            {
+                "question": "Can I export results for team sharing?",
+                "answer": "Yes, you can export results in JSON format from the Export tab. This includes all findings with their details, metadata, and analysis metrics. Future versions will support additional export formats like PDF and CSV.",
+            },
+            {
+                "question": "How do I handle false positives?",
+                "answer": "False positives can be filtered by adjusting confidence thresholds or using the search/filter options. You can also exclude specific patterns or file types in the advanced configuration. The tool learns from your feedback to improve accuracy over time.",
+            },
+            {
+                "question": "What's the difference between security and quality analyzers?",
+                "answer": "Security analyzers focus on vulnerabilities, compliance, and data protection issues that could lead to security breaches. Quality analyzers focus on code maintainability, readability, and best practices that improve long-term code health.",
+            },
+            {
+                "question": "Can I run this in CI/CD pipelines?",
+                "answer": "Yes, the tool is designed to be integrated into CI/CD pipelines. You can run it as part of your build process to automatically check for issues. The JSON export format makes it easy to parse results programmatically.",
+            },
+        ]
+
+        for i, faq in enumerate(faqs):
+            with st.expander(f"Q{i+1}: {faq['question']}"):
+                st.markdown(faq["answer"])
+
+    def _render_glossary(self):
+        """Render glossary section."""
+        st.markdown("### 📖 Glossary")
+
+        glossary_terms = [
+            {
+                "term": "Analysis Configuration",
+                "definition": "Settings that control how the analysis is performed, including target paths, analyzer selection, and execution options.",
+            },
+            {
+                "term": "Analyzer",
+                "definition": "A specialized component that performs specific types of code analysis (e.g., security, quality, compliance).",
+            },
+            {
+                "term": "CWE (Common Weakness Enumeration)",
+                "definition": "A standard classification system for software security weaknesses and vulnerabilities.",
+            },
+            {
+                "term": "Finding",
+                "definition": "A specific issue or observation detected by an analyzer, including details about location, severity, and remediation guidance.",
+            },
+            {
+                "term": "PII (Personally Identifiable Information)",
+                "definition": "Data that can be used to identify a specific individual, such as names, addresses, or social security numbers.",
+            },
+            {
+                "term": "PHI (Protected Health Information)",
+                "definition": "Health information that is protected under privacy laws like HIPAA.",
+            },
+            {
+                "term": "Severity Level",
+                "definition": "Classification of findings based on potential impact: Critical, High, Medium, Low, or Info.",
+            },
+            {
+                "term": "Confidence Score",
+                "definition": "A percentage indicating how certain the analyzer is about a finding's accuracy.",
+            },
+            {
+                "term": "Compliance Framework",
+                "definition": "A set of rules and standards that organizations must follow (e.g., GDPR, HIPAA, PCI DSS).",
+            },
+            {
+                "term": "Remediation Guidance",
+                "definition": "Specific instructions on how to fix or address a detected issue.",
+            },
+            {
+                "term": "False Positive",
+                "definition": "A finding that appears to be an issue but is actually correct or acceptable code.",
+            },
+            {
+                "term": "Parallel Execution",
+                "definition": "Running multiple analyzers simultaneously to reduce total analysis time.",
+            },
+            {
+                "term": "Code Location",
+                "definition": "The specific file and line number where a finding was detected.",
+            },
+            {
+                "term": "Unified Finding",
+                "definition": "A standardized format for representing findings from different analyzers with consistent metadata.",
+            },
+            {
+                "term": "Analysis Metrics",
+                "definition": "Performance and statistical data about the analysis process, including execution time and file counts.",
+            },
+        ]
+
+        for term in glossary_terms:
+            with st.expander(f"**{term['term']}**"):
+                st.markdown(term["definition"])
+
+
+def main():
+    """Main application entry point."""
+    app = ConsolidatedCodeReviewApp()
+    app.run()
+
+
+if __name__ == "__main__":
+    main()

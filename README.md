@@ -1,57 +1,44 @@
-# Code Quality and Security Check Tool
-## A single Streamlit homepage that links to focused code-quality apps (Maintainability, Readability, Robustness, Compliance, Hardcoded rules, etc.). Compact horizontal cards show issue counts; small tiles open each check.
+# 🔍 Code Review Tool
+### Unified analysis platform combining multiple security, quality, and compliance checkers.
 
 ## ✨ Features
-- Homepage hub with compact severity cards (High/Medium/Low/Info) and horizontal nav tiles
-- Maintainability (complexity, duplication, dead code)
-- Readability (uses Pylint for conventions & clarity)
-- Robustness (security, type safety, exception handling)
-- Compliance (org/industry policies)
-- Hardcoded Secrets (secrets/constants/insecure patterns)
-- Dependency Risk (packages & CVEs)
-- Injection Attacks (dangerous sinks & taint-like checks)
-- Observability (metrics/logs/traces readiness)
-- PII/PHI Leakage (data-loss patterns)
-- Testability (structure, counts, mapping to tests, coverage)
-- You can enable/disable sections by adding/removing tiles on the homepage.
+- 🔐 Security Analysis: Secrets, vulnerabilities, injection attacks
+- 🛡️ Privacy Compliance: PII/PHI detection, GDPR/HIPAA compliance
+- 📊 Code Quality: Readability, maintainability, performance
+- 🧪 Testing & Observability: Test coverage, logging analysis
+- 🧰 Maintainability: Cyclomatic Complexity, Maintainability Index
+- ⚙️ Performance: Inefficient code patterns, resource usage
 
-## 🔧 Requirements
-- python 3.10+
-- streamlit
-- ALl requirements from requirements.txt
+## 📦 Running the Tool
 
-## Packages
-### Macos
-- **gitleaks**  
-  Install via Homebrew:
-  ```bash
-  brew install gitleaks
+### Clone the repo:
 
-## Quick Start
-### Clone the repository
 ```bash
-git clone https://github.com/zain-sigmoid/gstool
-cd gstool
+git clone https://github.com/sanjeetarya001/CodeQualityShield
+cd codequalityshield
 ```
 
-### Create and activate virtual environment
+### Set Up the Environment
 ```bash
 python3 -m venv venv
-source venv/bin/activate     # macOS/Linux
+source venv/bin/activate
 ```
 
-### Install Dependencies
+### Install the dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### Launch the app
+### Run the Application
 ```bash
-streamlit run Home.py
+streamlit run main_consolidated.py
 ```
 
+## 🧪 Analysis
 
-
-
-
-
+1. Put the folder path of the project you want to analyze into the text box.  
+2. Press **Run Analysis** to start scanning.  
+3. Wait for the analyzers (Maintainability, Injection, Performance, Privacy) to run.  
+4. View the findings in the results panel:
+   - Summary metrics (files analyzed, execution time, errors, etc.)
+   - Detailed findings with severity, description, and remediation guidance.
