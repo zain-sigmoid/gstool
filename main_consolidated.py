@@ -16,7 +16,7 @@ from utils.prod_shift import Extract
 import zipfile
 import shutil
 import io
-import tempfile
+import pandas as pd
 
 # Configure logging
 logging.basicConfig(
@@ -216,7 +216,6 @@ class ConsolidatedCodeReviewApp:
             uploaded = st.file_uploader("Upload your python file", type=["py"])
             if uploaded:
                 dest = Extract.resolve_dest_folder(arg="file")
-                print(colored(f"single file:{dest}", "cyan"))
                 dest.mkdir(parents=True, exist_ok=True)
 
                 file_path = dest / uploaded.name
@@ -641,6 +640,14 @@ class ConsolidatedCodeReviewApp:
                 if finding.details is not None:
                     details = finding.details
                     self._render_vars(details)
+
+                if finding.clubbed is not None:
+                    df = pd.DataFrame(finding.clubbed)
+                    df.index = range(1, len(df) + 1)
+                    with st.expander(
+                        f"{finding.title} -- {os.path.basename(finding.location.file_path)}"
+                    ):
+                        st.table(df)
 
                 if finding.location.file_path:
                     location_str = f"{finding.location.file_path}"
