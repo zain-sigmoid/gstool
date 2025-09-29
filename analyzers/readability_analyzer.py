@@ -10,7 +10,7 @@ import json
 import logging
 import statistics
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import asyncio
 import traceback
 from collections import defaultdict
@@ -129,10 +129,10 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             analysis_results = await self._perform_readability_analysis(
                 python_files, analyzer_config
             )
-
+            clubbed_findings = await self._club_analysis_results(analysis_results)
             # Generate findings based on analysis
             findings = await self._generate_findings(
-                analysis_results, config.target_path, analyzer_config
+                clubbed_findings, config.target_path, analyzer_config
             )
 
             execution_time = asyncio.get_event_loop().time() - start_time
@@ -319,6 +319,18 @@ class ReadabilityAnalyzer(QualityAnalyzer):
                 "Add a descriptive docstring that explains what the function does, "
                 "its parameters, and its return value."
             ),
+            "bad-indentation": (
+                "The code is not indented according to Python's indentation rules. "
+                "Ensure that blocks are indented with consistent spaces (usually 4 spaces per level) "
+                "and that indentation aligns properly with the surrounding code."
+            ),
+            "missing-final-newline": (
+                "The file does not end with a newline character. "
+            ),
+            "too-many-arguments": (
+                "The function or method has too many parameters above recommended, which makes it hard to use and maintain."
+            ),
+            "missing-class-docstring": "The class is missing a docstring",
         }
         return ISSUE_DETAILS.get(symbol, f"No details available for symbol: {symbol}")
 
@@ -488,6 +500,103 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             or "/test" in file_path.lower()
         )
 
+    async def _club_analysis_results(
+        self, analysis_results: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Club selected symbols per file into a single finding each, adding a `clubbed`
+        dict with 'lines' and 'messages'. Others are returned unchanged.
+        Updates total_issues and issues_by_category.
+        """
+
+        src_issues: List[Dict[str, Any]] = analysis_results.get("all_issues", [])
+
+        # Symbols to club (normalized, lowercase)
+        CLUB_SYMBOLS = {
+            "line-too-long",
+            "missing-class-docstring",
+            "missing-function-docstring",
+            "invalid-name",
+            "too-many-arguments",
+            "too-many-locals",
+            "unused-variable",
+        }
+
+        # Fallback normalization via title → symbol (covers tools that set only title)
+        TITLE_TO_SYMBOL = {
+            "line too long": "line-too-long",
+            "missing class docstring": "missing-class-docstring",
+            "missing function docstring": "missing-function-docstring",
+            "missing module docstring": "missing-module-docstring",
+            "invalid naming convention": "invalid-naming-convention",
+            "too many function arguments": "too-many-arguments",
+            "too many local variables": "too-many-locals",
+            "unused variable": "unused-variable",
+        }
+
+        # Keyed by (file_path, normalized_symbol)
+        base_for_key: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        acc_for_key = defaultdict(lambda: {"lines": [], "messages": []})
+
+        out: List[Dict[str, Any]] = []
+
+        def normalize_symbol(issue: Dict[str, Any]) -> str:
+            s = (issue.get("symbol") or "").strip().lower()
+            if s:
+                return s
+            # fallback via title
+            t = (issue.get("title") or "").strip().lower()
+            return TITLE_TO_SYMBOL.get(t, "")
+
+        for issue in src_issues:
+            file_path = issue.get("file_path")
+            sym = normalize_symbol(issue)
+            # Only club our chosen symbols when file_path is present
+            if file_path and sym in CLUB_SYMBOLS:
+                key = (file_path, sym)
+
+                # store first occurrence as representative base (shallow copy)
+                if key not in base_for_key:
+                    base_for_key[key] = dict(issue)
+
+                # accumulate line numbers and messages
+                ln = issue.get("line_number")
+                if isinstance(ln, int):
+                    acc_for_key[key]["lines"].append(ln)
+                msg = issue.get("message")
+                if msg:
+                    acc_for_key[key]["messages"].append(msg)
+            else:
+                # pass-through for non-clubbed or missing file_path
+                out.append(issue)
+
+        # Emit one merged finding per (file, symbol)
+        for key, base in base_for_key.items():
+            merged = dict(base)  # keep original fields (details stays as-is)
+            collected = acc_for_key[key]
+            merged["message"] = merged["title"]
+            merged["clubbed"] = {
+                "lines": sorted(
+                    set(x for x in collected["lines"] if isinstance(x, int))
+                ),
+                "messages": collected["messages"],
+            }
+            merged["line_number"] = ""
+            out.append(merged)
+
+        # --- Update summary ---
+        new_total = len(out)
+        by_cat: Dict[str, int] = defaultdict(int)
+        for f in out:
+            by_cat[f.get("category", "uncategorized")] += 1
+
+        updated = dict(analysis_results)
+        updated["all_issues"] = out
+        updated["total_issues"] = new_total
+        updated["issues_by_category"] = dict(by_cat)
+        # keep overall_readability_score and files_analyzed unchanged
+        return updated
+
     async def _generate_findings(
         self, analysis_results: Dict[str, Any], target_path: str, config: Dict[str, Any]
     ) -> List[UnifiedFinding]:
@@ -532,6 +641,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
                 title=issue["title"],
                 description=issue["message"],
                 details=issue["details"],
+                clubbed=issue.get("clubbed", None),
                 category=FindingCategory.QUALITY,
                 severity=issue["severity"],
                 confidence_score=0.8,
@@ -568,6 +678,10 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             "too-many-arguments": "Reduce function arguments by grouping related parameters into objects or using *args/**kwargs",
             "too-many-locals": "Break function into smaller functions or use helper classes to reduce complexity or reducing variables.",
             "redefined-outer-name": "Rename a variable or function to avoid shadowing.",
+            "missing-final-newline": (
+                "Add a blank newline at the end of the file to follow POSIX standards "
+                "and ensure consistent behavior across tools."
+            ),
         }
 
         return remediation_mapping.get(
