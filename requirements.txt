@@ -50,3 +50,6 @@ scancode-toolkit==32.0.2
 
 # Terminal color
 termcolor
+
+#reading env files
+dotenv
