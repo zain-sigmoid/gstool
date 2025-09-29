@@ -11,7 +11,6 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Set, Tuple
 import asyncio
-from rich import print as rprint
 from core.interfaces import QualityAnalyzer
 from core.file_utils import find_python_files
 from core.models import (
@@ -215,7 +214,6 @@ class TestabilityAnalyzer(QualityAnalyzer):
 
         for test_file in test_files:
             test_functions = await self._extract_test_functions_from_file(test_file)
-            rprint(test_functions)
             if test_functions:
                 all_test_functions[test_file] = test_functions
                 targets = self._extract_test_function_targets(test_functions)

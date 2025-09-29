@@ -17,8 +17,6 @@ from typing import List, Dict, Any, Optional, Tuple
 from collections import defaultdict
 import asyncio
 
-from termcolor import colored
-from rich import print as rprint
 from utils.df_handling import collect_pandas_info, is_dataframe_expr
 from core.interfaces import QualityAnalyzer
 from core.file_utils import find_python_files
@@ -267,7 +265,6 @@ class RobustnessAnalyzer(QualityAnalyzer):
         return findings
 
     def _get_mypy_severity_mapping(self, code: str) -> SeverityLevel:
-        print(colored(code, "yellow"))
         severity_map = {
             # High -- which can breaks the code at runtime
             "return-value": SeverityLevel.HIGH,
@@ -376,8 +373,8 @@ class RobustnessAnalyzer(QualityAnalyzer):
                 entry["messages"].append(f"{msg} [{code}]" if code else msg)
                 if code:
                     entry["codes"].add(code)
-            for code, count in code_counts.items():
-                rprint(f"{code} : {count}")
+            # for code, count in code_counts.items():
+            #     rprint(f"{code} : {count}")
             # choose worst level within the group
             severity_order = {"error": 1, "warning": 2, "note": 3}
             for (fpath, lnum), data in grouped.items():

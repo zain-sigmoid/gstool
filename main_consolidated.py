@@ -8,9 +8,7 @@ Unified interface for all code analysis modules.
 import streamlit as st
 import asyncio
 import os
-import time
 import logging
-import re
 from termcolor import colored
 from typing import List
 from pathlib import Path
@@ -18,9 +16,12 @@ from utils.prod_shift import Extract
 import zipfile
 import shutil
 import io
+import pandas as pd
 
 # Configure logging
-logging.basicConfig(level=logging.INFO,format="%(levelname)-8s | %(name)s | %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(levelname)-8s | %(name)s | %(message)s"
+)
 logging.getLogger("watchdog").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 logging.getLogger("PIL").setLevel(logging.WARNING)
@@ -194,13 +195,15 @@ class ConsolidatedCodeReviewApp:
             #     placeholder="/path/to/your/project",
             #     help="Enter the full path to the directory to analyze",
             # )
-            target_path = st.file_uploader("Upload your project as a .zip", type=["zip"])
+            target_path = st.file_uploader(
+                "Upload your project as a .zip", type=["zip"]
+            )
             if target_path is not None:
-                dest = Path("/tmp/user_project")
+                dest = Extract.resolve_dest_folder(arg="dir")
                 if dest.exists():
                     shutil.rmtree(dest)
                 with zipfile.ZipFile(io.BytesIO(target_path.read())) as z:
-                    Extract.safe_extract_zip(z,dest)
+                    Extract.safe_extract_zip(z, dest)
                 project_root = Extract.find_best_project_root(dest, CODE_EXTS)
                 st.success(f"Unzipped Successfully")
                 st.session_state.resolved_target_path = project_root
@@ -212,7 +215,7 @@ class ConsolidatedCodeReviewApp:
             # )
             uploaded = st.file_uploader("Upload your python file", type=["py"])
             if uploaded:
-                dest = Path("/tmp/single_file")  # writable temp dir
+                dest = Extract.resolve_dest_folder(arg="file")
                 dest.mkdir(parents=True, exist_ok=True)
 
                 file_path = dest / uploaded.name
@@ -285,7 +288,8 @@ class ConsolidatedCodeReviewApp:
         if st.button(
             "🚀 Run Analysis",
             type="primary",
-            disabled=st.session_state.analysis_running or not st.session_state.resolved_target_path,
+            disabled=st.session_state.analysis_running
+            or not st.session_state.resolved_target_path,
             help="Start comprehensive code analysis",
         ):
             analysis_root = st.session_state.resolved_target_path
@@ -358,12 +362,31 @@ class ConsolidatedCodeReviewApp:
             st.info("🔄 Starting analysis...")
             progress_bar = st.progress(0)
 
+            def make_progress_cb(total_analyzers: int):
+                # Capture state in a closure
+                completed = {"n": 0}
+
+                def _cb(increment: int = 1, stage: str | None = None):
+                    completed["n"] += increment
+                    pct = int(100 * completed["n"] / max(total_analyzers, 1))
+                    label = (
+                        f"{stage or 'Analyzing'}: {completed['n']}/{total_analyzers}"
+                    )
+                    # Update the UI progress bar
+                    progress_bar.progress(pct, text=label)
+
+                return _cb
+
         try:
             # Run analysis (using asyncio for async function)
+            selected_analyzers = st.session_state.get("selected_analyzers_count", 10)
+            progress_cb = make_progress_cb(selected_analyzers)
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-            report = loop.run_until_complete(self.engine.analyze(config))
+            report = loop.run_until_complete(
+                self.engine.analyze(config, progress_cb=progress_cb)
+            )
 
             # Update session state
             st.session_state.current_report = report
@@ -617,6 +640,14 @@ class ConsolidatedCodeReviewApp:
                 if finding.details is not None:
                     details = finding.details
                     self._render_vars(details)
+
+                if finding.clubbed is not None:
+                    df = pd.DataFrame(finding.clubbed)
+                    df.index = range(1, len(df) + 1)
+                    with st.expander(
+                        f"{finding.title} -- {os.path.basename(finding.location.file_path)}"
+                    ):
+                        st.table(df)
 
                 if finding.location.file_path:
                     location_str = f"{finding.location.file_path}"

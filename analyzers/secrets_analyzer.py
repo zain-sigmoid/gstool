@@ -136,11 +136,9 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
         try:
             gitleaks_bin = ensure_gitleaks()
             self.gitleaks = gitleaks_bin
-            logger.info(f"Gitleaks path:{self.gitleaks}, type:{type(self.gitleaks)}")
             result = subprocess.run(
                 [gitleaks_bin, "version"], capture_output=True, text=True, timeout=10
             )
-            logger.info(result)
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
             traceback.print_exc()
@@ -209,7 +207,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
             #     command.append("--no-git")
 
             # logger.debug(f"Running command: {' '.join(commandv2)}")
-            
+
             cmd = [os.fspath(x) for x in commandv2]
             logger.debug(f"Running command: {' '.join(cmd)}")
             # Run Gitleaks

@@ -76,6 +76,7 @@ class UnifiedFinding:
     title: str = ""
     description: str = ""
     details: Optional[Any] = None
+    clubbed: Optional[Any] = None
 
     # Classification
     category: FindingCategory = FindingCategory.QUALITY

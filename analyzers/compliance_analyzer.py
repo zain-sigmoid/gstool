@@ -147,9 +147,9 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
         # Run ScanCode with output to file
         output_file = "scancode_report.json"
         try:
-            print(
-                colored(f"Scanning codebase scancode at {codebase_path}...", "yellow")
-            )
+            # print(
+            #     colored(f"Scanning codebase scancode at {codebase_path}...", "yellow")
+            # )
             subprocess.run(
                 ["scancode", "-clpeui", "--json-pp", output_file, codebase_path],
                 check=True,
