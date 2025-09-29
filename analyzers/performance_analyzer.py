@@ -47,7 +47,6 @@ class PerformanceAnalyzer(QualityAnalyzer):
             "regex_patterns",
         ]
         self.findings = []
-        print("running performance analyzer...")
 
     def get_supported_file_types(self) -> List[str]:
         """Return supported file types."""

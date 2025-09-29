@@ -172,7 +172,6 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
 
         except Exception as e:
             # Radon not available - use manual complexity analysis
-            print(colored(f"[EXC] {e}", "red"))
             traceback.print_exc()
             self._manual_complexity_analysis(path)
 
