@@ -1,7 +1,7 @@
 """
-gitleaks_prod.py
+Prod Shift file contains changes needed to be done on prod which are different from local host
 
-Gitleaks is not available on Debian which streamlit community clouds uses.
+Gitleaks is not available on Debian which streamlit community cloud uses.
 
 This is utility functions for managing the Gitleaks binary in production environments
 (e.g., Streamlit Community Cloud) where direct package installation via apt/brew
@@ -22,21 +22,30 @@ Notes:
 - On Streamlit Community, binaries should be placed under `/tmp` since it is
   writable at runtime.
 
+Secondly Class Extract is used to extract zip files on the prod as accepting folder path is not possible only accepting zip file is possible
+
 """
+
 import os
 import shutil
 import subprocess
 import logging
 import zipfile
+import tempfile
 from pathlib import Path
 from typing import Iterable
+from termcolor import colored
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 GITLEAKS_VERSION = os.getenv("GITLEAKS_VERSION", "v8.18.4")
-GITLEAKS_PATH = "/tmp/gitleaks"
+GITLEAKS_PATH = os.getenv("GITLEAKS_PATH", "/tmp/gitleaks")
 
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
+
 
 def ensure_gitleaks():
     if shutil.which("gitleaks"):
@@ -62,35 +71,52 @@ def ensure_gitleaks():
 
     return str(GITLEAKS_PATH)
 
+
 class Extract:
-    CODE_EXTS = (".py",) 
-     
+    CODE_EXTS = (".py",)
+
+    @staticmethod
+    def resolve_dest_folder(arg: str):
+        host = os.getenv("HOST", "localhost").lower()
+
+        base_path_lh = Path.cwd() / "user_project"
+        base_path_prod = Path(tempfile.gettempdir()) / "user_project"
+
+        if host == "localhost":
+            base = base_path_lh
+        elif host == "prod":
+            base = base_path_prod
+        else:
+            raise ValueError(f"Unsupported HOST: {host}")
+
+        return base / "single_file" if arg == "file" else base
+
     @staticmethod
     def safe_extract_zip(zf: zipfile.ZipFile, dest: Path, ignore_hidden_top_level=True):
-      """Safely extract ZIP into dest, preventing zip-slip.
-      Optionally skip top-level hidden/metadata entries ('.*', likely junk).
-      """
-      dest = dest.resolve()
-      for member in zf.infolist():
-          # Normalize and guard against traversal
-          member_path = Path(member.filename)
-          # Optionally skip hidden top-level entries (e.g., .git/, .DS_Store, __MACOSX/)
-          if ignore_hidden_top_level and len(member_path.parts) > 0:
-              top = member_path.parts[0]
-              if top.startswith("."):
-                  continue  # skip .git, .DS_Store, etc.
+        """Safely extract ZIP into dest, preventing zip-slip.
+        Optionally skip top-level hidden/metadata entries ('.*', likely junk).
+        """
+        dest = dest.resolve()
+        for member in zf.infolist():
+            # Normalize and guard against traversal
+            member_path = Path(member.filename)
+            # Optionally skip hidden top-level entries (e.g., .git/, .DS_Store, __MACOSX/)
+            if ignore_hidden_top_level and len(member_path.parts) > 0:
+                top = member_path.parts[0]
+                if top.startswith("."):
+                    continue  # skip .git, .DS_Store, etc.
 
-          # Final resolved path
-          target_path = (dest / member.filename).resolve()
-          if not str(target_path).startswith(str(dest)):
-              raise RuntimeError(f"Blocked unsafe path: {member.filename}")
+            # Final resolved path
+            target_path = (dest / member.filename).resolve()
+            if not str(target_path).startswith(str(dest)):
+                raise RuntimeError(f"Blocked unsafe path: {member.filename}")
 
-          if member.is_dir():
-              target_path.mkdir(parents=True, exist_ok=True)
-          else:
-              target_path.parent.mkdir(parents=True, exist_ok=True)
-              with zf.open(member) as src, open(target_path, "wb") as out:
-                  out.write(src.read())
+            if member.is_dir():
+                target_path.mkdir(parents=True, exist_ok=True)
+            else:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(member) as src, open(target_path, "wb") as out:
+                    out.write(src.read())
 
     @staticmethod
     def count_code_files(root: Path, exts: Iterable[str]) -> int:
@@ -109,7 +135,11 @@ class Extract:
         This avoids relying on specific folder names like __MACOSX.
         """
         # 1) Code at base?
-        if any(p.is_file() and p.suffix.lower() in exts for p in base.iterdir() if p.is_file()):
+        if any(
+            p.is_file() and p.suffix.lower() in exts
+            for p in base.iterdir()
+            if p.is_file()
+        ):
             return base
 
         # 2) Choose subdir with most code files
