@@ -358,12 +358,29 @@ class ConsolidatedCodeReviewApp:
             st.info("🔄 Starting analysis...")
             progress_bar = st.progress(0)
 
+            def make_progress_cb(total_analyzers: int):
+            # Capture state in a closure
+                completed = {"n": 0}
+
+                def _cb(increment: int = 1, stage: str | None = None):
+                    completed["n"] += increment
+                    pct = int(100 * completed["n"] / max(total_analyzers, 1))
+                    label = f"{stage or 'Analyzing'}: {completed['n']}/{total_analyzers}"
+                    # Update the UI progress bar
+                    progress_bar.progress(pct, text=label)
+
+                return _cb
+
         try:
             # Run analysis (using asyncio for async function)
+            selected_analyzers = st.session_state.get(
+                "selected_analyzers_count", 10
+            )
+            progress_cb = make_progress_cb(selected_analyzers)
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-            report = loop.run_until_complete(self.engine.analyze(config))
+            report = loop.run_until_complete(self.engine.analyze(config, progress_cb=progress_cb))
 
             # Update session state
             st.session_state.current_report = report
