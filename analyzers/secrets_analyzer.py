@@ -13,6 +13,7 @@ import traceback
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
+from utils.prod_shift import ensure_gitleaks
 from core.interfaces import SecurityAnalyzer, AnalysisResult
 from core.models import (
     UnifiedFinding,
@@ -36,6 +37,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
     def __init__(self):
         super().__init__("hardcoded_secrets", "1.0.0")
         self.cwe_mapping = self._initialize_cwe_mapping()
+        self.gitleaks = "gitleaks"
 
     def get_supported_file_types(self) -> List[str]:
         """Return supported file types (all files for secrets scanning)."""
@@ -132,18 +134,24 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
     def _check_gitleaks_available(self) -> bool:
         """Check if Gitleaks is available in the system."""
         try:
+            gitleaks_bin = ensure_gitleaks()
+            self.gitleaks = gitleaks_bin
+            logger.info(f"Gitleaks path:{self.gitleaks}, type:{type(self.gitleaks)}")
             result = subprocess.run(
-                ["gitleaks", "version"], capture_output=True, text=True, timeout=10
+                [gitleaks_bin, "version"], capture_output=True, text=True, timeout=10
             )
+            logger.info(result)
             return result.returncode == 0
         except (subprocess.TimeoutExpired, FileNotFoundError):
+            traceback.print_exc()
+            logger.error("Gitleaks error")
             return False
 
     def _get_gitleaks_version(self) -> Optional[str]:
         """Get Gitleaks version."""
         try:
             result = subprocess.run(
-                ["gitleaks", "version"], capture_output=True, text=True, timeout=10
+                [self.gitleaks, "version"], capture_output=True, text=True, timeout=10
             )
             if result.returncode == 0:
                 return result.stdout.strip()
@@ -184,7 +192,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
             # ]
             # using gitleaks v8.1+ command which also accepts custom rules
             commandv2 = [
-                "gitleaks",
+                self.gitleaks,
                 "dir",
                 source_path,
                 "-c",
@@ -200,11 +208,13 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
             # if not self._is_git_repo(source_path):
             #     command.append("--no-git")
 
-            logger.debug(f"Running command: {' '.join(commandv2)}")
-
+            # logger.debug(f"Running command: {' '.join(commandv2)}")
+            
+            cmd = [os.fspath(x) for x in commandv2]
+            logger.debug(f"Running command: {' '.join(cmd)}")
             # Run Gitleaks
             result = subprocess.run(
-                commandv2,
+                cmd,
                 capture_output=True,
                 text=True,
                 timeout=300,  # 5 minute timeout
@@ -236,6 +246,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
             logger.error("Gitleaks scan timed out")
             return []
         except Exception as e:
+            traceback.print_exc()
             logger.error(f"Gitleaks scan failed: {str(e)}")
             return []
 
@@ -285,7 +296,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
 
         # Create code location
         location = CodeLocation(
-            file_path=file_path,
+            file_path="/".join(file_path.split("/")[-2:]),
             line_number=line_number,
             end_line_number=gitleaks_result.get("EndLine"),
         )

@@ -546,7 +546,7 @@ class PIIAnalyzer(ComplianceAnalyzer):
             severity=severity,
             confidence_score=0.8,
             location=CodeLocation(
-                file_path=file_path,
+                file_path="/".join(file_path.split("/")[-2:]),
                 line_number=line_num,
             ),
             rule_id=f"PII_{pattern_name.upper()}",

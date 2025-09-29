@@ -99,7 +99,7 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
         await self._run_radon_analysis(config.target_path)
 
         # Analyze code duplication
-        await self._analyze_code_duplication(config.target_path)
+        # await self._analyze_code_duplication(config.target_path)
 
         # Analyze function duplication
         self._analyze_function_duplication(python_files)
@@ -140,7 +140,7 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                 details=finding.get("details", None),
                 confidence_score=0.8,
                 location=CodeLocation(
-                    file_path=finding.get("file", ""),
+                    file_path=f"/".join(finding.get("file", "").split("/")[-2:]),
                     line_number=finding.get("line", 0),
                 ),
                 remediation_guidance=finding.get("suggestion", ""),

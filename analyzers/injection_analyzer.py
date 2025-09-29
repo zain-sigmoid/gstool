@@ -444,7 +444,7 @@ class InjectionAnalyzer(SecurityAnalyzer):
                 severity=vulnerability["severity"],
                 confidence_score=0.7,  # Static analysis confidence
                 location=CodeLocation(
-                    file_path=vulnerability["file_path"],
+                    file_path="/".join(vulnerability["file_path"].split("/")[-2:]),
                     line_number=vulnerability["line_number"],
                 ),
                 rule_id=f"INJECTION_{vulnerability['vulnerability_type'].upper()}",

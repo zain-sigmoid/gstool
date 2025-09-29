@@ -1,1 +1,5 @@
-gitleaks
+pkg-config
+libicu-dev
+build-essential
+wget
+tar

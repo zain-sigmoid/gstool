@@ -324,6 +324,7 @@ class TestabilityAnalyzer(QualityAnalyzer):
     async def _generate_findings(
         self, analysis_results: Dict[str, Any], target_path: str, config: Dict[str, Any]
     ) -> List[UnifiedFinding]:
+        
         """Generate findings based on testability analysis results."""
         findings = []
 
@@ -341,7 +342,7 @@ class TestabilityAnalyzer(QualityAnalyzer):
                 category=FindingCategory.TESTABILITY,
                 severity=severity,
                 confidence_score=0.9,
-                location=CodeLocation(file_path=target_path),
+                location=CodeLocation(file_path="/".join(str(target_path).split("/")[-2:])),
                 rule_id="LOW_TEST_COVERAGE",
                 remediation_guidance=f"Add unit tests for untested functions to reach {minimum_threshold}% coverage",
                 remediation_complexity=ComplexityLevel.MODERATE,
@@ -366,7 +367,7 @@ class TestabilityAnalyzer(QualityAnalyzer):
                 category=FindingCategory.TESTABILITY,
                 severity=SeverityLevel.MEDIUM,
                 confidence_score=0.8,
-                location=CodeLocation(file_path=target_path),
+                location=CodeLocation(file_path="/".join(str(target_path).split("/")[-2:])),
                 rule_id="MISSING_TEST_STRUCTURE",
                 remediation_guidance="Create a 'tests' or 'test' folder for better test organization",
                 remediation_complexity=ComplexityLevel.SIMPLE,
@@ -384,7 +385,7 @@ class TestabilityAnalyzer(QualityAnalyzer):
                 category=FindingCategory.TESTABILITY,
                 severity=SeverityLevel.HIGH,
                 confidence_score=0.95,
-                location=CodeLocation(file_path=target_path),
+                location=CodeLocation(file_path="/".join(str(target_path).split("/")[-2:])),
                 rule_id="NO_TEST_FILES",
                 remediation_guidance="Create test files with 'test_' prefix or '_test' suffix",
                 remediation_complexity=ComplexityLevel.MODERATE,
@@ -416,7 +417,7 @@ class TestabilityAnalyzer(QualityAnalyzer):
                             else SeverityLevel.MEDIUM
                         ),
                         confidence_score=0.8,
-                        location=CodeLocation(file_path=file_path),
+                        location=CodeLocation(file_path="/".join(str(file_path).split("/")[-2:])),
                         rule_id="UNTESTED_FUNCTIONS",
                         remediation_guidance=f"Add unit tests for {len(untested_funcs)} untested function(s)",
                         remediation_complexity=ComplexityLevel.MODERATE,
