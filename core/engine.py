@@ -38,7 +38,7 @@ class UnifiedAnalysisEngine:
         self.transformer = DataTransformer()
         self._analysis_history: List[ConsolidatedReport] = []
 
-    async def analyze(self, config: AnalysisConfiguration) -> ConsolidatedReport:
+    async def analyze(self, config: AnalysisConfiguration, progress_cb=None) -> ConsolidatedReport:
         """
         Run comprehensive analysis using all enabled analyzers.
 
@@ -71,10 +71,10 @@ class UnifiedAnalysisEngine:
 
             # Run analysis modules
             if config.parallel_execution:
-                analysis_results = await self._run_parallel_analysis(analyzers, config)
+                analysis_results = await self._run_parallel_analysis(analyzers, config, progress_cb)
             else:
                 analysis_results = await self._run_sequential_analysis(
-                    analyzers, config
+                    analyzers, config, progress_cb
                 )
 
             # Aggregate results
@@ -150,13 +150,13 @@ class UnifiedAnalysisEngine:
         self._analysis_history.clear()
 
     async def _run_parallel_analysis(
-        self, analyzers: List[BaseAnalyzer], config: AnalysisConfiguration
+        self, analyzers: List[BaseAnalyzer], config: AnalysisConfiguration, progress_cb=None
     ) -> List[AnalysisResult]:
         """Run analyzers in parallel."""
         tasks = []
         for analyzer in analyzers:
             task = asyncio.create_task(
-                self._run_single_analyzer(analyzer, config),
+                self._run_single_analyzer(analyzer, config, progress_cb),
                 name=f"analyzer_{analyzer.get_name()}",
             )
             tasks.append(task)
@@ -171,9 +171,9 @@ class UnifiedAnalysisEngine:
             # Filter out exceptions and log them
             valid_results = []
             for i, result in enumerate(results):
+                analyzer_name = analyzers[i].get_name()
                 if isinstance(result, Exception):
                     traceback.print_exc()
-                    analyzer_name = analyzers[i].get_name()
                     logger.error(f"Analyzer {analyzer_name} failed: {str(result)}")
 
                     # Create error metrics
@@ -212,13 +212,13 @@ class UnifiedAnalysisEngine:
             ]
 
     async def _run_sequential_analysis(
-        self, analyzers: List[BaseAnalyzer], config: AnalysisConfiguration
+        self, analyzers: List[BaseAnalyzer], config: AnalysisConfiguration, progress_cb=None
     ) -> List[AnalysisResult]:
         """Run analyzers sequentially."""
         results = []
         for analyzer in analyzers:
             try:
-                result = await self._run_single_analyzer(analyzer, config)
+                result = await self._run_single_analyzer(analyzer, config, progress_cb)
                 results.append(result)
             except Exception as e:
                 traceback.print_exc()
@@ -244,7 +244,7 @@ class UnifiedAnalysisEngine:
         return results
 
     async def _run_single_analyzer(
-        self, analyzer: BaseAnalyzer, config: AnalysisConfiguration
+        self, analyzer: BaseAnalyzer, config: AnalysisConfiguration, progress_cb=None
     ) -> AnalysisResult:
         """Run a single analyzer with error handling and timeout."""
         start_time = time.time()
@@ -269,6 +269,8 @@ class UnifiedAnalysisEngine:
                 )
 
             # Run the analyzer
+            if progress_cb:
+                progress_cb(increment=0, stage=f"{analyzer_name} running")
             result = await analyzer.analyze(config)
 
             # Apply filters and transformations
@@ -296,6 +298,9 @@ class UnifiedAnalysisEngine:
                 f"Analyzer {analyzer_name} failed after {execution_time:.2f}s: {str(e)}"
             )
             raise
+        finally:
+            if progress_cb:
+                progress_cb(increment=1, stage=f"{analyzer_name} finished")
 
     def _apply_filters(
         self, findings: List[UnifiedFinding], config: AnalysisConfiguration
