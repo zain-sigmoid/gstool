@@ -17,6 +17,8 @@ import zipfile
 import shutil
 import io
 import pandas as pd
+import traceback
+from rich import print as rprint
 
 # Configure logging
 logging.basicConfig(
@@ -642,12 +644,19 @@ class ConsolidatedCodeReviewApp:
                     self._render_vars(details)
 
                 if finding.clubbed is not None:
-                    df = pd.DataFrame(finding.clubbed)
-                    df.index = range(1, len(df) + 1)
-                    with st.expander(
-                        f"{finding.title} -- {os.path.basename(finding.location.file_path)}"
-                    ):
-                        st.table(df)
+                    try:
+                        df = pd.DataFrame(finding.clubbed)
+                        df.index = range(1, len(df) + 1)
+                        with st.expander(
+                            f"{finding.title} -- {os.path.basename(finding.location.file_path)}"
+                        ):
+                            st.table(df)
+                    except Exception as e:
+                        traceback.print_exc()
+                        with st.expander(
+                            f"{finding.title} -- {os.path.basename(finding.location.file_path)}"
+                        ):
+                            st.write("There is some problem showing this info")
 
                 if finding.location.file_path:
                     location_str = f"{finding.location.file_path}"
@@ -755,36 +764,202 @@ class ConsolidatedCodeReviewApp:
         """Render export options."""
         st.markdown("## 📋 Export Results")
 
-        # TODO: Implement export functionality
-        st.info("Export functionality will be enhanced in later phases")
+        exportable_data = bool(
+            report.findings
+            or report.analysis_metrics
+            or report.summary
+            or report.compliance_status
+        )
 
-        if st.button("📄 Download JSON Report"):
-            # Basic JSON export
-            import json
+        if not exportable_data:
+            st.info("No report data is available for export yet.")
+            return
 
-            report_dict = {
-                "timestamp": report.timestamp.isoformat(),
-                "target_path": report.target_path,
-                "total_findings": len(report.findings),
-                "findings": [
-                    {
-                        "title": f.title,
-                        "description": f.description,
-                        "severity": f.severity.value,
-                        "category": f.category.value,
-                        "file": f.location.file_path,
-                        "line": f.location.line_number,
-                    }
-                    for f in report.findings
-                ],
+        timestamp_str = report.timestamp.strftime("%Y%m%d_%H%M%S")
+        base_filename = f"code_review_report_{timestamp_str}"
+
+        findings_payload = []
+        for finding in report.findings:
+            location = finding.location
+            findings_payload.append(
+                {
+                    "id": finding.id,
+                    "title": finding.title,
+                    "description": finding.description,
+                    "clubbed": finding.clubbed,
+                    "severity": finding.severity.value,
+                    "category": finding.category.value,
+                    "confidence_score": finding.confidence_score,
+                    "file_path": location.file_path,
+                    "line_number": location.line_number,
+                    "column": location.column,
+                    "analyzer": finding.source_analyzer,
+                    "rule_id": finding.rule_id,
+                    "cwe_id": finding.cwe_id,
+                    "owasp_category": finding.owasp_category,
+                    "tags": sorted(finding.tags),
+                    "timestamp": finding.timestamp.isoformat(),
+                }
+            )
+
+        metrics_payload = [
+            {
+                "analyzer_name": metric.analyzer_name,
+                "execution_time_seconds": metric.execution_time_seconds,
+                "files_analyzed": metric.files_analyzed,
+                "findings_count": metric.findings_count,
+                "error_count": metric.error_count,
+                "warnings_count": metric.warnings_count,
+                "success": metric.success,
+                "error_message": metric.error_message,
             }
+            for metric in report.analysis_metrics
+        ]
 
+        compliance_payload = [
+            {
+                "framework_name": status.framework_name,
+                "total_checks": status.total_checks,
+                "passed_checks": status.passed_checks,
+                "failed_checks": status.failed_checks,
+                "compliance_percentage": status.compliance_percentage,
+                "critical_failures": status.critical_failures,
+            }
+            for status in report.compliance_status
+        ]
+
+        export_payload = {
+            "metadata": {
+                "report_id": report.id,
+                "generated_at": report.timestamp.isoformat(),
+                "target_path": report.target_path,
+                "total_execution_time": report.total_execution_time,
+            },
+            "summary": report.get_summary_stats(),
+            "findings": findings_payload,
+            "analysis_metrics": metrics_payload,
+            "compliance": compliance_payload,
+            "analysis_config": report.analysis_config,
+        }
+
+        import json
+        from io import StringIO
+        import csv
+
+        from datetime import datetime
+        from enum import Enum
+        from pathlib import PurePath
+
+        def _json_ready(value):
+            if isinstance(value, dict):
+                return {key: _json_ready(val) for key, val in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [_json_ready(item) for item in value]
+            if isinstance(value, set):
+                return sorted(_json_ready(item) for item in value)
+            if isinstance(value, Enum):
+                return value.value
+            if isinstance(value, datetime):
+                return value.isoformat()
+            if isinstance(value, PurePath):
+                return str(value)
+            try:
+                json.dumps(value)
+            except TypeError:
+                return str(value)
+            return value
+
+        json_payload = _json_ready(export_payload)
+
+        json_bytes = json.dumps(json_payload, indent=2)
+
+        def _as_str_path(p):
+            # convert Path/str/None -> str
+            return "" if p is None else os.fspath(p)
+
+        def _join_list(values, sep=","):
+            if not values:
+                return ""
+            if not isinstance(values, (list, tuple, set)):
+                return str(values)
+            return sep.join(map(str, values))
+
+        def join_lines(lines) -> str:
+            if not lines:
+                return ""
+            # use pipe and wrap in brackets -> [65|66|176|179]
+            return "[" + "|".join(map(str, lines)) + "]"
+
+        csv_buffer = StringIO()
+        fieldnames = [
+            "id",
+            "severity",
+            "category",
+            "clubbed_lines",
+            "clubbed_messages",
+            "file_path",
+            "line_number",
+            "title",
+            "description",
+            "analyzer",
+            "confidence_score",
+        ]
+        csv_writer = csv.DictWriter(csv_buffer, fieldnames=fieldnames)
+        csv_writer.writeheader()
+
+        for f in findings_payload:
+            clubbed = f.get("clubbed") or {}  # ✅ handle None
+            lines = clubbed.get("lines", [])
+            msgs = clubbed.get("messages", [])
+
+            row = {
+                "id": f.get("id", ""),
+                "severity": f.get("severity", ""),
+                "category": f.get("category", ""),
+                "clubbed_lines": join_lines(lines),  # e.g. "83,109"
+                "clubbed_messages": _join_list(msgs, sep=" | "),  # e.g. "msg1 | msg2"
+                "file_path": _as_str_path(f.get("file_path")),
+                "line_number": f.get("line_number", ""),
+                "title": f.get("title", ""),
+                "description": f.get("description", ""),
+                "analyzer": f.get("analyzer", ""),
+                "confidence_score": f.get("confidence_score", ""),
+            }
+            csv_writer.writerow(row)
+
+        findings_csv = csv_buffer.getvalue()
+
+        col_json, col_csv = st.columns([3, 3])
+
+        with col_json:
             st.download_button(
-                "Download JSON",
-                json.dumps(report_dict, indent=2),
-                file_name=f"code_review_report_{report.timestamp.strftime('%Y%m%d_%H%M%S')}.json",
+                "📄 Download JSON",
+                json_bytes,
+                file_name=f"{base_filename}.json",
                 mime="application/json",
             )
+            with st.expander("Preview JSON"):
+                try:
+                    st.json(findings_payload)
+                except Exception as e:
+                    logger.error(f"Error in JSON Preview: {e}")
+                    st.write("Unable to Preview")
+
+        with col_csv:
+            st.download_button(
+                "📊 Download CSV",
+                findings_csv,
+                file_name=f"{base_filename}.csv",
+                mime="text/csv",
+                disabled=not findings_payload,
+            )
+            with st.expander("Preview CSV"):
+                try:
+                    df = pd.read_csv(StringIO(findings_csv))
+                    st.dataframe(df)
+                except Exception as e:
+                    logger.error(f"Error in CSV Preview: {e}")
+                    st.write("Unable to Preview")
 
     def _apply_finding_filters(
         self,

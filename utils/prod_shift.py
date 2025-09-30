@@ -33,7 +33,7 @@ import logging
 import zipfile
 import tempfile
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Set
 from termcolor import colored
 from dotenv import load_dotenv
 
@@ -73,7 +73,24 @@ def ensure_gitleaks():
 
 
 class Extract:
-    CODE_EXTS = (".py",)
+    CODE_EXTS: Set[str] = {".py"}
+
+    EXCLUDE_DIRS: Set[str] = {
+        "__MACOSX",
+        ".git",
+        ".hg",
+        ".svn",
+        ".idea",
+        ".vscode",
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        "node_modules",
+        "venv",
+        ".venv",
+        "env",
+        ".env",
+    }
 
     @staticmethod
     def resolve_dest_folder(arg: str):
@@ -118,42 +135,136 @@ class Extract:
                 with zf.open(member) as src, open(target_path, "wb") as out:
                     out.write(src.read())
 
+    # @staticmethod
+    # def count_code_files(root: Path, exts: Iterable[str]) -> int:
+    #     n = 0
+    #     for p in root.rglob("*"):
+    #         if p.is_file() and p.suffix.lower() in exts:
+    #             n += 1
+    #     return n
+
+    # @staticmethod
+    # def find_best_project_root(base: Path, exts: Iterable[str] = CODE_EXTS) -> Path:
+    #     """Heuristic:
+    #     1) If base has code files directly, use base.
+    #     2) Else, among base's subdirs, pick the one with the most code files.
+    #     3) If tie or none have code, fall back to base.
+    #     This avoids relying on specific folder names like __MACOSX.
+    #     """
+    #     # 1) Code at base?
+    #     if any(
+    #         p.is_file() and p.suffix.lower() in exts
+    #         for p in base.iterdir()
+    #         if p.is_file()
+    #     ):
+    #         return base
+
+    #     # 2) Choose subdir with most code files
+    #     candidates = [d for d in base.iterdir() if d.is_dir()]
+    #     if not candidates:
+    #         return base
+
+    #     best = None
+    #     best_count = -1
+    #     for d in candidates:
+    #         cnt = Extract.count_code_files(d, exts)
+    #         if cnt > best_count:
+    #             best = d
+    #             best_count = cnt
+
+    #     # 3) Fallback
+    #     return best if best and best_count > 0 else base
+
+    @staticmethod
+    def is_hidden_dir(p: Path) -> bool:
+        name = p.name
+        return name.startswith(".") or name in Extract.EXCLUDE_DIRS
+
+    @staticmethod
+    def is_code_file(p: Path, exts: Iterable[str]) -> bool:
+        # Skip dot-underscore resource-fork junk from macOS
+        if p.name.startswith("._"):
+            return False
+        return p.is_file() and p.suffix.lower() in exts
+
     @staticmethod
     def count_code_files(root: Path, exts: Iterable[str]) -> int:
-        n = 0
-        for p in root.rglob("*"):
-            if p.is_file() and p.suffix.lower() in exts:
-                n += 1
-        return n
+        """Count code files under root while pruning excluded/hidden dirs."""
+        count = 0
+        # manual walk to prune
+        stack = [root]
+        while stack:
+            d = stack.pop()
+            try:
+                for entry in d.iterdir():
+                    if entry.is_dir():
+                        if not Extract.is_hidden_dir(entry):
+                            stack.append(entry)
+                    else:
+                        if Extract.is_code_file(entry, exts):
+                            count += 1
+            except PermissionError:
+                # just skip unreadable dirs
+                continue
+        return count
+
+    @staticmethod
+    def first_level_code_files(root: Path, exts: Iterable[str]) -> int:
+        try:
+            return sum(1 for p in root.iterdir() if Extract.is_code_file(p, exts))
+        except PermissionError:
+            return 0
+
+    @staticmethod
+    def filtered_subdirs(root: Path) -> list[Path]:
+        try:
+            return [
+                d for d in root.iterdir() if d.is_dir() and not Extract.is_hidden_dir(d)
+            ]
+        except PermissionError:
+            return []
 
     @staticmethod
     def find_best_project_root(base: Path, exts: Iterable[str] = CODE_EXTS) -> Path:
-        """Heuristic:
-        1) If base has code files directly, use base.
-        2) Else, among base's subdirs, pick the one with the most code files.
-        3) If tie or none have code, fall back to base.
-        This avoids relying on specific folder names like __MACOSX.
         """
-        # 1) Code at base?
-        if any(
-            p.is_file() and p.suffix.lower() in exts
-            for p in base.iterdir()
-            if p.is_file()
-        ):
+        Heuristic:
+        0) Normalize to an existing dir; otherwise return base.
+        1) If base itself has code files at top level → return base.
+        2) If base has exactly one subdir (after filtering) and no top-level code → recurse into it
+            (handles zips that wrap the project in a single folder).
+        3) Otherwise, choose the subdir with the most code files (deep count).
+            Tie-breakers: shallower depth wins, then lexicographical name.
+        4) If no subdir has code → return base.
+        """
+        base = base.resolve()
+        if not base.exists() or not base.is_dir():
             return base
 
-        # 2) Choose subdir with most code files
-        candidates = [d for d in base.iterdir() if d.is_dir()]
-        if not candidates:
+        # (1) code files directly at base?
+        if Extract.first_level_code_files(base, exts) > 0:
             return base
 
+        subs = Extract.filtered_subdirs(base)
+
+        # (2) descend through single wrapper folder(s)
+        if len(subs) == 1:
+            only = subs[0]
+            # guard against infinite loop by checking if it actually changes
+            if only != base:
+                return Extract.find_best_project_root(only, exts)
+
+        # (3) pick subdir with most code files
         best = None
         best_count = -1
-        for d in candidates:
+        for d in subs:
             cnt = Extract.count_code_files(d, exts)
-            if cnt > best_count:
+            if (
+                cnt > best_count
+                or (cnt == best_count and len(d.parts) < len((best or d).parts))
+                or (cnt == best_count and d.name < (best or d).name)
+            ):
                 best = d
                 best_count = cnt
 
-        # 3) Fallback
+        # (4) fallback
         return best if best and best_count > 0 else base

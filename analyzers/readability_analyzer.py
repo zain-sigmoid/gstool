@@ -331,6 +331,9 @@ class ReadabilityAnalyzer(QualityAnalyzer):
                 "The function or method has too many parameters above recommended, which makes it hard to use and maintain."
             ),
             "missing-class-docstring": "The class is missing a docstring",
+            "trailing-whitespace": "The line has extra spaces or tabs at the end.",
+            "bad-classmethod-argument": "The first argument of a `@classmethod` is not named `cls`. By convention and readability standards, class methods should always use `cls` as their first parameter",
+            "bad-mcs-classmethod-argument": "The first argument of a metaclass `@classmethod` is not named `mcs`. By convention, metaclass methods should always use `mcs` as their first parameter.",
         }
         return ISSUE_DETAILS.get(symbol, f"No details available for symbol: {symbol}")
 
@@ -514,16 +517,19 @@ class ReadabilityAnalyzer(QualityAnalyzer):
         # Symbols to club (normalized, lowercase)
         CLUB_SYMBOLS = {
             "line-too-long",
+            "missing-module-docstring",
             "missing-class-docstring",
             "missing-function-docstring",
             "invalid-name",
             "too-many-arguments",
             "too-many-locals",
             "unused-variable",
+            "trailing-whitespace",
         }
 
         # Fallback normalization via title → symbol (covers tools that set only title)
         TITLE_TO_SYMBOL = {
+            "invalid name": "invalid-name",
             "line too long": "line-too-long",
             "missing class docstring": "missing-class-docstring",
             "missing function docstring": "missing-function-docstring",
@@ -532,6 +538,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             "too many function arguments": "too-many-arguments",
             "too many local variables": "too-many-locals",
             "unused variable": "unused-variable",
+            "trailing whitespace": "trailing-whitespace",
         }
 
         # Keyed by (file_path, normalized_symbol)
@@ -577,7 +584,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             merged["message"] = merged["title"]
             merged["clubbed"] = {
                 "lines": sorted(
-                    set(x for x in collected["lines"] if isinstance(x, int))
+                    list(x for x in collected["lines"] if isinstance(x, int))
                 ),
                 "messages": collected["messages"],
             }
@@ -682,6 +689,9 @@ class ReadabilityAnalyzer(QualityAnalyzer):
                 "Add a blank newline at the end of the file to follow POSIX standards "
                 "and ensure consistent behavior across tools."
             ),
+            "trailing-whitespace": "The line has extra spaces or tabs at the end. Remove them to improve cleanliness.",
+            "bad-classmethod-argument": "Rename the first parameter of the class method to `cls` to follow Python conventions",
+            "bad-mcs-classmethod-argument": "Rename the first parameter of the metaclass method to `mcs` to comply with Python conventions and improve clarity.",
         }
 
         return remediation_mapping.get(
