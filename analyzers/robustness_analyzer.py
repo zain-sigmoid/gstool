@@ -11,12 +11,10 @@ import re
 import tempfile
 import logging
 import traceback
-from pathlib import Path
 import ast
 from typing import List, Dict, Any, Optional, Tuple
-from collections import defaultdict
 import asyncio
-
+from collections import defaultdict, Counter
 from utils.df_handling import collect_pandas_info, is_dataframe_expr
 from core.interfaces import QualityAnalyzer
 from core.file_utils import find_python_files
@@ -266,28 +264,33 @@ class RobustnessAnalyzer(QualityAnalyzer):
 
     def _get_mypy_severity_mapping(self, code: str) -> SeverityLevel:
         severity_map = {
-            # High -- which can breaks the code at runtime
-            "return-value": SeverityLevel.HIGH,
-            "arg-type": SeverityLevel.HIGH,
-            "call-arg": SeverityLevel.HIGH,
-            "name-defined": SeverityLevel.HIGH,
-            "attr-defined": SeverityLevel.HIGH,
-            "import-not-found": SeverityLevel.HIGH,
-            # Medium -- may not crash immediately, but unsafe
-            "no-redef": SeverityLevel.MEDIUM,
-            "operator": SeverityLevel.MEDIUM,
-            "type-arg": SeverityLevel.MEDIUM,
-            "import-untyped": SeverityLevel.MEDIUM,
-            # Low -- style / code structure only
-            "no-untyped-def": SeverityLevel.LOW,
-            "no-untyped-call": SeverityLevel.LOW,
+            # 🔴 High — likely to break or misbehave at runtime
+            "return-value": SeverityLevel.HIGH,  # wrong return type → runtime errors
+            "arg-type": SeverityLevel.HIGH,  # invalid argument type
+            "call-arg": SeverityLevel.HIGH,  # mismatched call arguments
+            "name-defined": SeverityLevel.HIGH,  # undefined name
+            "attr-defined": SeverityLevel.HIGH,  # missing attribute
+            "import-not-found": SeverityLevel.HIGH,  # missing dependency
+            "assignment": SeverityLevel.HIGH,  # invalid assignment type
+            "return": SeverityLevel.HIGH,  # invalid return statement/type
+            # 🟠 Medium — unsafe, but not immediate runtime breakage
+            "no-redef": SeverityLevel.MEDIUM,  # redefinition may shadow variables
+            "operator": SeverityLevel.MEDIUM,  # wrong operator types
+            "type-arg": SeverityLevel.MEDIUM,  # missing/invalid type argument
+            "import-untyped": SeverityLevel.MEDIUM,  # imported module lacks typing
+            "union-attr": SeverityLevel.MEDIUM,  # unsafe attribute access on Union
+            "annotation-unchecked": SeverityLevel.MEDIUM,  # unchecked annotations may hide issues
+            "misc": SeverityLevel.MEDIUM,  # generic issues (potentially unsafe)
+            # 🟢 Low — style / completeness / type coverage
+            "no-untyped-def": SeverityLevel.LOW,  # missing function annotations
+            "no-untyped-call": SeverityLevel.LOW,  # call to untyped function
         }
         return severity_map.get(code, SeverityLevel.INFO)
 
     def get_mypy_code_mapping(self, code: str) -> str:
         """Return a mapping of MyPy error codes to short labels."""
         code_mapping = {
-            "no-untyped-def": "Missing function annotations",
+            "no-untyped-def": "Missing Function Annotations",
             "return-value": "Return type mismatch",
             "no-untyped-call": "Call to untyped function",
             "attr-defined": "Attribute not defined",
@@ -299,6 +302,11 @@ class RobustnessAnalyzer(QualityAnalyzer):
             "name-defined": "Undefined name",
             "no-redef": "Name redefined",
             "call-arg": "Invalid function call arguments",
+            "return": "Invalid Return Statement or Type",
+            "assignment": "Invalid Assignment Type",
+            "misc": "Miscellaneous Type Checking Issue",
+            "union-attr": "Invalid Union Attribute Access",
+            "annotation-unchecked": "Unchecked Type Annotation",
         }
         return code_mapping.get(code, "Type Checking Issue")
 
@@ -317,36 +325,26 @@ class RobustnessAnalyzer(QualityAnalyzer):
             stdout, stderr = await result.communicate()
 
             output = stdout.decode()
-            # pattern = (
-            #     r"^(.+\.py):(\d+):\s*(error|warning|note):\s*(.+?)(?:\s+\[([^\]]+)\])?$"
-            # )
             pattern = (
                 r"^(?P<file>.+\.py):(?P<line>\d+):\s*"
                 r"(?P<level>error|warning|note):\s*"
                 r"(?P<msg>.+?)(?:\s+\[(?P<code>[^\]]+)\])?$"
             )
-            keys = set()
-            # for line in output.split("\n"):
-            #     line = line.strip()
-            #     if not line:
-            #         continue
-
-            #     match = re.match(pattern, line)
-            #     if match:
-            #         filepath, line_num, level, message, error_code = match.groups()
-            #         finding = self._create_mypy_finding(
-            #             filepath, int(line_num), level, message, error_code
-            #         )
-            #         if finding:
-            #             findings.append(finding)
             grouped = defaultdict(
-                lambda: {"levels": set(), "messages": [], "codes": set()}
+                lambda: {
+                    "levels": set(),
+                    "lines_list": [],  # keeps order; same length as messages_list
+                    "messages_list": [],  # keeps order; same length as lines_list
+                    "codes": set(),
+                }
             )
-            # avoid exact duplicates (sometimes mypy can repeat)
-            seen = set()
-            from collections import Counter
 
+            seen = set()
             code_counts = Counter()
+
+            def _norm_code(code: str | None) -> str:
+                return (code or "<unknown>").strip().lower()
+
             for raw_line in output.splitlines():
                 line = raw_line.strip()
                 if not line:
@@ -358,47 +356,81 @@ class RobustnessAnalyzer(QualityAnalyzer):
                 fpath = m.group("file")
                 lnum = int(m.group("line"))
                 level = m.group("level")
-                msg = m.group("msg")
+                msg = m.group("msg").strip()
                 code = m.group("code")
 
-                code_counts[code] += 1
+                if level == "note":
+                    continue
 
-                dup_key = (fpath, lnum, level, msg, code)
+                norm_code = _norm_code(code)
+                code_counts[norm_code] += 1
+
+                # exact duplicate guard
+                dup_key = (fpath, lnum, level, msg, norm_code)
                 if dup_key in seen:
                     continue
                 seen.add(dup_key)
 
-                entry = grouped[(fpath, lnum)]
-                entry["levels"].add(level)
-                entry["messages"].append(f"{msg} [{code}]" if code else msg)
+                bucket = grouped[(fpath, norm_code)]
+                bucket["levels"].add(level)
+                bucket["lines_list"].append(lnum)  # CHANGED: append to list
+                bucket["messages_list"].append(msg)
                 if code:
-                    entry["codes"].add(code)
-            # for code, count in code_counts.items():
-            #     rprint(f"{code} : {count}")
-            # choose worst level within the group
-            severity_order = {"error": 1, "warning": 2, "note": 3}
-            for (fpath, lnum), data in grouped.items():
-                level = max(data["levels"], key=lambda x: severity_order[x])
-                if len(data["messages"]) > 1:
-                    combined_msg = "Multiple issues:\n  • " + "\n  • ".join(
-                        data["messages"]
-                    )
-                else:
-                    combined_msg = data["messages"][0]
+                    bucket["codes"].add(code)
+
+            severity_order = {"error": 2, "warning": 1, "note": 0}
+
+            for (fpath, norm_code), data in grouped.items():
+                level = max(data["levels"], key=lambda x: severity_order.get(x, 0))
+
+                # For header/preview we can use distinct lines, but keep clubbed lines as full list
+                # distinct_lines_sorted = sorted(set(data["lines_list"]))
+                hits = len(data["lines_list"])
 
                 combined_code = (
-                    ", ".join(sorted(data["codes"])) if data["codes"] else None
+                    None
+                    if norm_code == "<unknown>"
+                    else (", ".join(sorted(data["codes"])) or norm_code)
                 )
+                hits = len(data["lines_list"])
+                combined_msg = f"{self.get_mypy_code_mapping(combined_code)} -- {hits} occurrence(s)"
+
+                # Representative anchor line for the finding (first occurrence)
+                rep_line = data["lines_list"][0] if data["lines_list"] else 1
+
                 finding = self._create_mypy_finding(
                     fpath,
-                    lnum,
+                    rep_line,
                     level,
                     combined_msg,
                     combined_code,
                 )
                 if finding:
-                    findings.append(finding)
+                    clubbed_payload = {
+                        # CHANGED: lists are equal length → safe for DataFrame
+                        "lines": data["lines_list"],
+                        "messages": data["messages_list"],
+                    }
+                    try:
+                        setattr(finding, "clubbed", clubbed_payload)
+                    except Exception:
+                        try:
+                            finding["clubbed"] = clubbed_payload
+                        except Exception:
+                            pass
 
+                    if combined_code:
+                        try:
+                            setattr(
+                                finding, "rule_id", combined_code.split(",")[0].strip()
+                            )
+                        except Exception:
+                            try:
+                                finding["rule_id"] = combined_code.split(",")[0].strip()
+                            except Exception:
+                                pass
+
+                    findings.append(finding)
         except FileNotFoundError:
             logger.error("MyPy not found. Please install with: pip install mypy")
         except Exception as e:
@@ -446,12 +478,96 @@ rules:
                     if stdout:
                         try:
                             data = json.loads(stdout.decode())
-                            for result_item in data.get("results", []):
-                                finding = self._create_semgrep_finding(
-                                    result_item, short_fp
+                            from collections import defaultdict
+
+                            def _rule_id_of(item):
+                                extra = item.get("extra") or {}
+                                meta = extra.get("metadata") or {}
+                                return (
+                                    meta.get("rule_id")
+                                    or extra.get("message_id")
+                                    or item.get("check_id")
+                                    or item.get("rule_id")
+                                    or "<unknown>"
                                 )
-                                if finding:
-                                    findings.append(finding)
+
+                            grouped = defaultdict(
+                                lambda: {
+                                    "base": None,
+                                    "lines": [],  # keep list (1:1 with messages)
+                                    "messages": [],  # keep list (1:1 with lines)
+                                }
+                            )
+
+                            for ri in data.get("results", []):
+                                rid = (_rule_id_of(ri) or "").strip().lower()
+                                start = ri.get("start") or {}
+                                lnum = start.get("line") or ri.get("start_line")
+                                msg = (
+                                    (ri.get("extra") or {}).get("message") or ""
+                                ).strip()
+
+                                key = (short_fp, rid)
+                                if grouped[key]["base"] is None:
+                                    grouped[key]["base"] = ri
+
+                                if isinstance(lnum, int):
+                                    grouped[key]["lines"].append(lnum)
+                                grouped[key]["messages"].append(msg)
+
+                            for (fp, rid), g in grouped.items():
+                                base_item = g["base"]
+                                if not base_item:
+                                    continue
+
+                                # Create one finding per (file, rule)
+                                finding = self._create_semgrep_finding(base_item, fp)
+                                if not finding:
+                                    continue
+
+                                hits = len(g["lines"])
+                                combined_msg = (
+                                    f"open() without try/except - {hits} occurrence(s)"
+                                )
+
+                                # Attach clubbed payload (lists stay aligned for DF)
+                                clubbed_payload = {
+                                    "lines": g["lines"],
+                                    "messages": g["messages"],
+                                }
+
+                                # Set fields safely (dataclass or dict)
+                                try:
+                                    setattr(finding, "rule_id", rid)
+                                except Exception:
+                                    try:
+                                        finding["rule_id"] = rid
+                                    except Exception:
+                                        pass
+
+                                try:
+                                    setattr(finding, "description", combined_msg)
+                                except Exception:
+                                    try:
+                                        finding["description"] = combined_msg
+                                    except Exception:
+                                        pass
+
+                                try:
+                                    setattr(finding, "clubbed", clubbed_payload)
+                                except Exception:
+                                    try:
+                                        finding["clubbed"] = clubbed_payload
+                                    except Exception:
+                                        pass
+
+                                findings.append(finding)
+                            # for result_item in data.get("results", []):
+                            #     finding = self._create_semgrep_finding(
+                            #         result_item, short_fp
+                            #     )
+                            #     if finding:
+                            #         findings.append(finding)
                         except json.JSONDecodeError:
                             logger.warning(
                                 f"Failed to parse Semgrep output for {file_path}"
@@ -852,6 +968,10 @@ rules:
             "name-defined": "Define or import the name before use; fix scope/order of definitions.",
             "no-redef": "Use a unique name or remove the duplicate definition.",
             "call-arg": "Ensure the function call matches the declared parameters and does not provide extra or missing arguments.",
+            "return": "Make all return statements conform to the declared return type; either change the annotation or convert the returned value accordingly.",
+            "union-attr": "Only access attributes present on every member of the Union. Narrow the type first via isinstance/None checks or match/case; then access or use typing.cast after the guard.",
+            "annotation-unchecked": "Provide concrete, checkable annotations (avoid Any/dynamic constructs). Add missing stubs/plugins if needed, and annotate decorated/overloaded functions explicitly so MyPy can check them.",
+            "misc": "Inspect the full error text and add precise type annotations or refactor dynamic code to be type-safe. If from third-party libs, add type stubs or pin versions. Use reveal_type to locate the mismatch.",
         }
         return guidance.get(error_code, "Review and fix the type checking issue.")
 
@@ -893,6 +1013,15 @@ rules:
                 "The function call does not match the target function’s signature. "
                 "This usually means too many arguments, missing required arguments, "
                 "or mismatched keyword arguments."
+            ),
+            "return": (
+                "A value returned from the function does not match the declared return type."
+            ),
+            "union-attr": ("Invalid attribute access on a Union type. "),
+            "annotation-unchecked": ("Unchecked type annotation detected."),
+            "misc": (
+                "Miscellaneous type checking issue. "
+                "The analyzer encountered a type inconsistency that does not fit a specific category."
             ),
         }
         return details.get(
