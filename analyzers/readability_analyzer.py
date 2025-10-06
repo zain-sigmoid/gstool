@@ -517,13 +517,13 @@ class ReadabilityAnalyzer(QualityAnalyzer):
         # Symbols to club (normalized, lowercase)
         CLUB_SYMBOLS = {
             "line-too-long",
-            "missing-module-docstring",
             "missing-class-docstring",
             "missing-function-docstring",
             "invalid-name",
             "too-many-arguments",
             "too-many-locals",
             "unused-variable",
+            "unused-import",
             "trailing-whitespace",
         }
 
@@ -533,11 +533,11 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             "line too long": "line-too-long",
             "missing class docstring": "missing-class-docstring",
             "missing function docstring": "missing-function-docstring",
-            "missing module docstring": "missing-module-docstring",
             "invalid naming convention": "invalid-naming-convention",
             "too many function arguments": "too-many-arguments",
             "too many local variables": "too-many-locals",
             "unused variable": "unused-variable",
+            "unused import": "unused-import",
             "trailing whitespace": "trailing-whitespace",
         }
 
