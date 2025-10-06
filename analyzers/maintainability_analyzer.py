@@ -197,7 +197,6 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                         analysis = await analyze_function_in_file(
                             file_path, func_name, complexity
                         )
-                        rprint(analysis)
                         self.findings.append(
                             {
                                 "type": "cyclomatic_complexity",
@@ -530,7 +529,6 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
         result = run_jscpd_analysis(path, min_tokens=20)
         if "duplicates" in result:
             clones = result["duplicates"]
-            rprint(clones)
             for x in clones:
                 lines = x["lines"] - 1
                 ffile = x["firstFile"]
