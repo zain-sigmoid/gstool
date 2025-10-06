@@ -335,6 +335,8 @@ class ConsolidatedCodeReviewApp:
             st.session_state.show_glossary = True
             st.rerun()
 
+        st.caption(f"🔖 Version: {1.4}")
+
     def _run_analysis(
         self,
         target_path: str,
@@ -557,7 +559,7 @@ class ConsolidatedCodeReviewApp:
             return
         # titles = {f.title for f in findings}
         titles = {self._base_type(f.title) for f in findings}
-
+        paths = {os.path.basename(f.location.file_path) for f in findings}
         # Filters
         col1, col2, col3 = st.columns(3)
 
@@ -586,10 +588,17 @@ class ConsolidatedCodeReviewApp:
                 index=0,
                 # default=sorted(titles),
             )
+            options_two = ["All"] + sorted(paths)
+            finding_file_filter = st.selectbox("Filter by Files:", options_two, index=0)
 
         # Apply filters
         filtered_findings = self._apply_finding_filters(
-            findings, severity_filter, category_filter, search_term, finding_type_filter
+            findings,
+            severity_filter,
+            category_filter,
+            search_term,
+            finding_type_filter,
+            finding_file_filter,
         )
 
         st.write(f"Showing {len(filtered_findings)} of {len(findings)} findings")
@@ -968,6 +977,7 @@ class ConsolidatedCodeReviewApp:
         category_filter: List[str],
         search_term: str,
         finding_type_filter: List[str],
+        finding_file_filter: List[str],
     ) -> List[UnifiedFinding]:
         """Apply filters to findings list."""
         filtered = findings
@@ -1001,6 +1011,14 @@ class ConsolidatedCodeReviewApp:
                 f
                 for f in filtered
                 if _lc(self._base_type(getattr(f, "title", ""))) in type_values
+            ]
+
+        if finding_file_filter and finding_file_filter != "All":
+            file_values = {finding_file_filter}
+            filtered = [
+                f
+                for f in filtered
+                if os.path.basename(f.location.file_path) in file_values
             ]
 
         return filtered
