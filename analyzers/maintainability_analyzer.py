@@ -45,7 +45,7 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
             "cyclomatic_complexity",
             "complexity_risk_ranking",
             "maintainability_index",
-            "code_duplication",
+            "function_duplication",
         ]
         self.tool_runner = ToolRunner()
         self.findings = []
@@ -64,7 +64,7 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
             "cyclomatic_complexity_score",
             "complexity_risk_ranking_score",
             "maintainability_index",
-            "code_duplication_percentage",
+            "function_duplication_percentage",
         ]
 
     def get_default_config(self) -> Dict[str, Any]:
@@ -133,14 +133,14 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
         findings = []
         for finding in results:
             unified_finding = UnifiedFinding(
-                title=f"Maintainability Issue: {finding['type'].replace('_', ' ').title()}",
+                title=f"{finding['type'].replace('_', ' ').title()}",
                 severity=finding.get("severity", SeverityLevel.INFO),
                 category=FindingCategory.MAINTAINABILITY,
                 description=finding.get("description", ""),
                 details=finding.get("details", None),
                 confidence_score=0.8,
                 location=CodeLocation(
-                    file_path=f"/".join(finding.get("file", "").split("/")[-2:]),
+                    file_path=finding.get("file", ""),
                     line_number=finding.get("line", 0),
                 ),
                 remediation_guidance=finding.get("suggestion", ""),
@@ -173,18 +173,68 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
         except Exception as e:
             # Radon not available - use manual complexity analysis
             traceback.print_exc()
+            logger.error(f"Problem in radon: {e}")
+            logger.info("Falling back to manual complexity analysis")
             self._manual_complexity_analysis(path)
+
+    def _iter_cc_functions(self, cc_data):
+        """
+        Yields (file_path, [function_dict, ...]) for each file,
+        normalizing values that are list/dict.
+        """
+        for file_path, val in cc_data.items():
+            funcs = []
+            if isinstance(val, list):
+                # list of function dicts
+                funcs = [d for d in val if isinstance(d, dict)]
+            elif isinstance(val, dict):
+                # either a single function dict or a wrapper like {'functions': [...]}
+                if "functions" in val and isinstance(val["functions"], list):
+                    funcs = [d for d in val["functions"] if isinstance(d, dict)]
+                else:
+                    funcs = [val]  # treat as single function record
+            else:
+                # unexpected type; skip
+                continue
+            if funcs:
+                yield file_path, funcs
+
+    def _cc_rank_mapping(self, rank):
+        print(colored(f"Mapping rank: {rank}, type of {type(rank)}", "yellow"))
+        cc_rank_mapping = {
+            "A": "Low",
+            "B": "Low",
+            "C": "Moderate",
+            "D": "More than Moderate",
+            "E": "High",
+            "F": "Very High",
+        }
+        return cc_rank_mapping.get(rank, "Unknown")
 
     async def _process_radon_cc(self, cc_output):
         """Process radon cyclomatic complexity output."""
+        cc_chart = (
+            "**Cyclomatic Complexity (CC) Risk Levels**  \n"
+            "| CC Score | Rank | Risk Description |  \n"
+            "|-----------|------|------------------|  \n"
+            "| 1 – 5 | **A** | Low – simple block |  \n"
+            "| 6 – 10 | **B** | Low – well-structured and stable block |  \n"
+            "| 11 – 20 | **C** | Moderate – slightly complex block |  \n"
+            "| 21 – 30 | **D** | More than moderate – more complex block |  \n"
+            "| 31 – 40 | **E** | High – complex block, alarming |  \n"
+            "| 41 + | **F** | Very high – error-prone, unstable block |"
+        )
+
         try:
             cc_data = json.loads(cc_output)
+            rprint(cc_data)
             high_complexity_functions = 0
             total_functions = 0
-            for file_path, functions in cc_data.items():
+            for file_path, functions in self._iter_cc_functions(cc_data):
                 for func in functions:
                     total_functions += 1
                     complexity = func.get("complexity", 0)
+                    rank = func.get("rank", "").upper()
                     func_name = func.get("name", "unknown")
                     line = func.get("lineno", 0)
 
@@ -201,12 +251,13 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                             {
                                 "type": "cyclomatic_complexity",
                                 "severity": severity,
-                                "file": file_path,
+                                "file": f"/".join(file_path.split("/")[-2:]),
                                 "line": line,
                                 "function": func_name,
                                 "complexity": complexity,
                                 "details": analysis["metrics"],
-                                "description": f"Function `{func_name}` has high cyclomatic complexity ({complexity})",
+                                "description": f"Function `{func_name}` has **{self._cc_rank_mapping(rank)}** cyclomatic complexity (**{complexity}**) having rank **{rank}**."
+                                + f" <br> {cc_chart} ",
                                 "suggestion": analysis["suggestions"],
                             }
                         )
@@ -234,8 +285,14 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
             "E": "very_high",
             "F": "very_high",
         }
-
-        for file_path, functions in cc_data.items():
+        chart = (
+            "| Rank | Moderate | High | Very High |\n"
+            "|------|-----------|------|------------|\n"
+            "| **Moderately Maintainable** | ≤ 40 % | ≤ 10 % | = 0 % |\n"
+            "| **Maintainable** | ≤ 50 % | ≤ 15 % | ≤ 5 % |\n"
+            "| **Poorly Maintainable** | > 50 % | >15 % | > 5 % |"
+        )
+        for file_path, functions in self._iter_cc_functions(cc_data):
             risk_loc = {"moderate": 0, "high": 0, "very_high": 0}
             risk_funcs = {"moderate": [], "high": [], "very_high": []}
             total_loc = self._get_file_loc(file_path)
@@ -258,6 +315,7 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
 
             # Determine system rank from the table
             system_rank = "Poorly Maintainable"
+            reason = ""
             if (
                 percent["moderate"] <= 25
                 and percent["high"] == 0
@@ -276,16 +334,52 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                 and percent["very_high"] == 0
             ):
                 system_rank = "Moderately Maintainable"
+                blockers = []
+                if percent["moderate"] > 30:
+                    blockers.append(f"moderate {percent['moderate']:.1f}% > 30%")
+                if percent["high"] > 5:
+                    blockers.append(f"high {percent['high']:.1f}% > 5%")
+                reason = (
+                    "; ".join(blockers) or "meets moderate≤40%, high≤10%, very_high=0%"
+                )
             elif (
                 percent["moderate"] <= 50
                 and percent["high"] <= 15
                 and percent["very_high"] <= 5
             ):
                 system_rank = "Maintainable"
+                not_higher = list(
+                    filter(
+                        None,
+                        [
+                            "moderate>40%" if percent["moderate"] > 40 else "",
+                            "high>10%" if percent["high"] > 10 else "",
+                            "very_high>0%" if percent["very_high"] > 0 else "",
+                        ],
+                    )
+                )
+                if not_higher:
+                    reason = (
+                        "Meets Baseline (moderate≤50%, high≤15%, very_high≤5%) but not higher due to "
+                        + " or ".join(not_higher)
+                    )
+                else:
+                    reason = "meets baseline thresholds."
+            else:
+                system_rank = "Poorly Maintainable"
+                if percent["very_high"] > 5:
+                    reason = f"very_high {percent['very_high']:.1f}% > 5%"
+                elif percent["high"] > 15:
+                    reason = f"high {percent['high']:.1f}% > 15%"
+                elif percent["moderate"] > 50:
+                    reason = f"moderate {percent['moderate']:.1f}% > 50%"
+                else:
+                    reason = "below baseline maintainability thresholds."
 
             severity = SeverityLevel.INFO
             if system_rank in ["Highly Maintainable", "Fairly Maintainable"]:
                 severity = SeverityLevel.INFO
+                continue  # Skip low risk findings
             elif system_rank == "Moderately Maintainable":
                 severity = SeverityLevel.MEDIUM
             else:
@@ -298,6 +392,7 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                 },
                 "total_loc": total_loc,
                 "rank": system_rank,
+                "reason": reason,
             }
             desc = json.dumps(details, indent=2)
             # Add to findings
@@ -305,12 +400,20 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                 {
                     "type": "complexity_risk_ranking",
                     "severity": severity,
-                    "description": """
-                        - **Moderate**: Percent of LOC in functions rated C by Cyclomatic Complexity (CC)  
-                        - **High**: Percent of LOC in functions rated D by CC  
-                        - **Very High**: Percent of LOC in functions rated E by CC
-                        """,
-                    "file": file_path,
+                    # "description": f"""
+                    #     **Moderate**: Percent of LOC in functions rated C by Cyclomatic Complexity (CC)
+                    #     **High**: Percent of LOC in functions rated D by CC
+                    #     **Very High**: Percent of LOC in functions rated E by CC
+                    #     {chart}
+                    #     """,
+                    "description": (
+                        "<br>"
+                        "**Moderate**: Percent of LOC in functions rated C by Cyclomatic Complexity (CC)  \n"
+                        "**High**: Percent of LOC in functions rated D by CC  \n"
+                        "**Very High**: Percent of LOC in functions rated E by CC  \n\n"
+                        f"{chart}"
+                    ),
+                    "file": f"/".join(file_path.split("/")[-2:]),
                     "details": details,
                     "rank": system_rank,
                     "suggestion": "Refactor high and very high complexity code to improve maintainability.",
@@ -326,19 +429,20 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
             for file_path, mi_info in mi_data.items():
                 total_files += 1
                 mi_score = mi_info.get("mi", 100)
-
+                rank = mi_info.get("rank", "")
                 if mi_score <= 20 and mi_score > 10:
                     severity = SeverityLevel.MEDIUM
                     suggestion = (
-                        "Maintainability is moderate and could be improved.<br>"
-                        "🛠 Suggestions:<br>"
-                        "- Review method lengths<br>"
-                        "- Eliminate redundant logic<br>"
-                        "- Aim for better modular design"
+                        "Maintainability is moderate and could be improved."
+                        " Review method lengths."
+                        " Eliminate redundant logic."
+                        " Aim for better modular design"
                     )
-                elif mi_score <= 10:
-                    severity = SeverityLevel.HIGH
                     response = MIDiagnose.analyze_file(file_path)
+                    response["suggestions"] = suggestion
+                elif mi_score <= 10:
+                    response = MIDiagnose.analyze_file(file_path)
+                    severity = SeverityLevel.HIGH
                 else:
                     severity = SeverityLevel.INFO
                     continue
@@ -347,15 +451,16 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                     {
                         "type": "maintainability_index",
                         "severity": severity,
-                        "file": file_path,
+                        "file": f"/".join(file_path.split("/")[-2:]),
                         "mi_score": mi_score,
                         "details": response["stats"],
-                        "description": f'File "{file}" has maintainability index ({mi_score:.1f})',
+                        "description": f"File `{file}` has maintainability index ({mi_score:.1f}) ranked as {rank}. <br> where <ul><li>A : 100-20 (Highly Maintainable)</li> <li>B : 19-10 (Moderately Maintainable)</li> <li>C : 9-0 (Poorly Maintainable)</li> </ul>",
                         "suggestion": response["suggestions"],
                     }
                 )
 
         except Exception as e:
+            traceback.print_exc()
             print(colored(f"Error parsing MI output: {e}", "red"))
 
     def _manual_complexity_analysis(self, path):
@@ -510,7 +615,7 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                 file_list = sorted({file.split("/")[-1] for file, _, _ in occurrences})
                 self.findings.append(
                     {
-                        "type": "code_duplication",
+                        "type": "function_duplication",
                         "severity": SeverityLevel.MEDIUM,
                         "function": func_name,
                         "description": f"Function `{func_name}` appears at multiple locations with similar structure.",
@@ -546,6 +651,7 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                         "severity": SeverityLevel.MEDIUM,
                         "description": f"{lines} Duplicate Lines found in 2 files",
                         "file": ", ".join(locations),
+                        "locations": locations,
                         "suggestion": "Refactor the repeated code into a single shared function to improve maintainability and reduce redundancy.",
                     }
                 )
@@ -586,3 +692,15 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
         # Create a simple hash from node counts
         hash_string = "".join(f"{k}:{v}" for k, v in sorted(node_counts.items()))
         return hash(hash_string)
+
+    def _create_empty_result(self) -> AnalysisResult:
+        """Create an empty analysis result."""
+        metrics = AnalysisMetrics(
+            analyzer_name=self.name,
+            execution_time_seconds=0.0,
+            files_analyzed=0,
+            findings_count=0,
+            error_count=0,
+            success=True,
+        )
+        return AnalysisResult(findings=[], metrics=metrics, metadata={})

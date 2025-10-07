@@ -10,8 +10,8 @@ import re
 import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
-from textwrap import shorten
 import asyncio
+import traceback
 from core.interfaces import QualityAnalyzer
 from core.file_utils import find_python_files
 from core.models import (
@@ -102,7 +102,6 @@ class ObservabilityAnalyzer(QualityAnalyzer):
             analysis_results = await self._perform_observability_analysis(
                 python_files, analyzer_config
             )
-
             # Generate findings based on analysis
             findings = await self._generate_findings(
                 analysis_results, config.target_path, analyzer_config
@@ -142,6 +141,7 @@ class ObservabilityAnalyzer(QualityAnalyzer):
             )
 
         except Exception as e:
+            traceback.print_exc()
             logger.error(f"Observability analysis failed: {str(e)}")
             error_count += 1
             execution_time = asyncio.get_event_loop().time() - start_time
@@ -372,7 +372,7 @@ class ObservabilityAnalyzer(QualityAnalyzer):
             )
             finding = UnifiedFinding(
                 title="Poor Observability Coverage",
-                description=f"Logging coverage is {overall_score:.1f}%, below recommended {minimum_threshold}%",
+                description=f"Overall Folder Logging coverage is {overall_score:.1f}%, below recommended {minimum_threshold}%",
                 category=FindingCategory.OBSERVABILITY,
                 severity=severity,
                 confidence_score=0.9,
@@ -402,20 +402,27 @@ class ObservabilityAnalyzer(QualityAnalyzer):
                 ]
 
                 if critical_functions_without_logging:
-                    names = ", ".join(
-                        f["name"] for f in critical_functions_without_logging
-                    )
-                    description = (
-                        f"Critical functions without logging: {len(critical_functions_without_logging)} "
-                        f"{shorten(names, width=120, placeholder='...')}"
-                    )
+                    names = [f["name"] for f in critical_functions_without_logging]
+                    lines = [
+                        f["line_number"] for f in critical_functions_without_logging
+                    ]
+                    description = f"Critical functions without logging: {len(critical_functions_without_logging)} "
+                    clubbed = {
+                        "line_numbers": lines,
+                        "function_names": names,
+                    }
                     finding = UnifiedFinding(
                         title="Critical Functions Missing Logging",
                         description=description,
+                        clubbed=clubbed,
                         category=FindingCategory.OBSERVABILITY,
                         severity=SeverityLevel.HIGH,
                         confidence_score=0.8,
-                        location=CodeLocation(file_path="/".join(str(file_result["file_path"]).split("/")[-2:])),
+                        location=CodeLocation(
+                            file_path="/".join(
+                                str(file_result["file_path"]).split("/")[-2:]
+                            )
+                        ),
                         rule_id="CRITICAL_FUNCTIONS_NO_LOGGING",
                         remediation_guidance="Add logging to critical functions for better debugging and monitoring",
                         remediation_complexity=ComplexityLevel.SIMPLE,
@@ -433,59 +440,104 @@ class ObservabilityAnalyzer(QualityAnalyzer):
                     findings.append(finding)
 
         # Check for files with very poor observability
+        poor_files, fair_files = [], []
         for file_result in analysis_results["file_results"]:
-            if file_result["score"] < 25 and file_result["total_functions"] > 2:
-                functions_without_logging = [
-                    f for f in file_result["functions"] if not f["has_logging"]
-                ]
+            score = file_result["score"]
+            total_funcs = file_result["total_functions"]
 
-                finding = UnifiedFinding(
-                    title="File with Poor Observability",
-                    description=f"File has very low logging coverage: {file_result['score']:.1f}%, less then 25%",
-                    category=FindingCategory.OBSERVABILITY,
-                    severity=SeverityLevel.MEDIUM,
-                    confidence_score=0.7,
-                    location=CodeLocation(file_path="/".join(str(file_result["file_path"]).split("/")[-2:])),
-                    rule_id="FILE_POOR_OBSERVABILITY",
-                    remediation_guidance="Add logging statements to improve observability",
-                    remediation_complexity=ComplexityLevel.MODERATE,
-                    source_analyzer=self.name,
-                    tags={"file_observability", "logging_coverage"},
-                    extra_data={
-                        "file_score": file_result["score"],
-                        "functions_without_logging": [
-                            f["name"] for f in functions_without_logging
-                        ],
-                        "total_functions": file_result["total_functions"],
-                    },
-                )
-                findings.append(finding)
+            if total_funcs <= 0:
+                continue
+
+            functions_without_logging = [
+                f for f in file_result["functions"] if not f["has_logging"]
+            ]
+
+            file_info = {
+                "file_path": "/".join(str(file_result["file_path"]).split("/")[-2:]),
+                "score": score,
+                "total_functions": total_funcs,
+                "functions_without_logging": [
+                    f["name"] for f in functions_without_logging
+                ],
+            }
+
+            if score < 25 and total_funcs > 2:
+                poor_files.append(file_info)
             else:
-                functions_without_logging = [
-                    f for f in file_result["functions"] if not f["has_logging"]
-                ]
-                if file_result["total_functions"] > 0:
-                    finding = UnifiedFinding(
-                        title="File with Fair Observability",
-                        description=f"File has fair logging coverage: {file_result['score']:.1f}%",
-                        category=FindingCategory.OBSERVABILITY,
-                        severity=SeverityLevel.INFO,
-                        confidence_score=0.7,
-                        location=CodeLocation(file_path="/".join(str(file_result["file_path"]).split("/")[-2:])),
-                        rule_id="FILE_FAIR_OBSERVABILITY",
-                        remediation_guidance="File has Fair amount of observability",
-                        remediation_complexity=ComplexityLevel.MODERATE,
-                        source_analyzer=self.name,
-                        tags={"file_observability", "logging_coverage"},
-                        extra_data={
-                            "file_score": file_result["score"],
-                            "functions_without_logging": [
-                                f["name"] for f in functions_without_logging
-                            ],
-                            "total_functions": file_result["total_functions"],
-                        },
-                    )
-                findings.append(finding)
+                fair_files.append(file_info)
+
+        # --- Emit one finding per category ---
+        if poor_files:
+            files = [f["file_path"] for f in poor_files]
+            coverage = [f'{f["score"]:.1f}%' for f in poor_files]
+            # functions = [
+            #     f'{len(f["functions_without_logging"])} / {f["total_functions"]}'
+            #     for f in poor_files
+            # ]
+            clubbed = {
+                "File Paths": files,
+                "Coverage Percentages": coverage,
+            }
+            finding = UnifiedFinding(
+                title="Files with Poor Observability",
+                description=f"{len(poor_files)} file(s) have very low logging coverage (<25%).",
+                clubbed=clubbed,
+                category=FindingCategory.OBSERVABILITY,
+                severity=SeverityLevel.MEDIUM,
+                confidence_score=0.8,
+                location=CodeLocation(file_path=Path(target_path).name),
+                rule_id="POOR_OBSERVABILITY",
+                remediation_guidance="Add logging statements to improve observability across critical functions.",
+                remediation_complexity=ComplexityLevel.MODERATE,
+                source_analyzer=self.name,
+                tags={"observability", "logging_coverage"},
+                extra_data={
+                    "files": [
+                        {
+                            "file_path": f["file_path"],
+                            "score": f["score"],
+                            "total_functions": f["total_functions"],
+                            "functions_without_logging": f["functions_without_logging"],
+                        }
+                        for f in poor_files
+                    ]
+                },
+            )
+            findings.append(finding)
+
+        if fair_files:
+            files = [f["file_path"] for f in fair_files]
+            coverage = [f'{f["score"]:.1f}%' for f in fair_files]
+            clubbed = {
+                "File Paths": files,
+                "Coverage Percentages": coverage,
+            }
+            finding = UnifiedFinding(
+                title="Files with Fair Observability",
+                description=f"{len(fair_files)} file(s) have fair logging coverage (≥25%).",
+                clubbed=clubbed,
+                category=FindingCategory.OBSERVABILITY,
+                severity=SeverityLevel.INFO,
+                confidence_score=0.7,
+                location=CodeLocation(file_path=Path(target_path).name),
+                rule_id="FAIR_OBSERVABILITY",
+                remediation_guidance="Files have a fair amount of observability. Consider adding more logging for better coverage.",
+                remediation_complexity=ComplexityLevel.MODERATE,
+                source_analyzer=self.name,
+                tags={"observability", "logging_coverage"},
+                extra_data={
+                    "files": [
+                        {
+                            "file_path": f["file_path"],
+                            "score": f["score"],
+                            "total_functions": f["total_functions"],
+                            "functions_without_logging": f["functions_without_logging"],
+                        }
+                        for f in fair_files
+                    ]
+                },
+            )
+            findings.append(finding)
 
         # Check for lack of structured logging if enabled
         if config.get("require_structured_logging", False):
@@ -507,7 +559,9 @@ class ObservabilityAnalyzer(QualityAnalyzer):
                     category=FindingCategory.OBSERVABILITY,
                     severity=SeverityLevel.LOW,
                     confidence_score=0.6,
-                    location=CodeLocation(file_path="/".join(str(target_path).split("/")[-2:])),
+                    location=CodeLocation(
+                        file_path="/".join(str(target_path).split("/")[-2:])
+                    ),
                     rule_id="MISSING_STRUCTURED_LOGGING",
                     remediation_guidance="Consider using structured logging with extra parameters or structured logging libraries",
                     remediation_complexity=ComplexityLevel.MODERATE,

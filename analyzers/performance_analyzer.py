@@ -12,7 +12,6 @@ import traceback
 from typing import List, Dict, Any
 from collections import defaultdict
 from pathlib import Path
-from termcolor import colored
 from core.file_utils import find_python_files
 from utils.time_space_analyzer import ComplexityEstimator
 from core.interfaces import QualityAnalyzer
@@ -126,10 +125,12 @@ class PerformanceAnalyzer(QualityAnalyzer):
         findings = []
         for finding in results:
             unified_finding = UnifiedFinding(
-                title=f"Performance Issue: {finding['type'].replace('_', ' ').title()}",
+                title=f"{finding['type'].replace('_', ' ').title()}",
                 severity=finding.get("severity", SeverityLevel.INFO),
                 category=FindingCategory.PERFORMANCE,
                 description=finding.get("description", ""),
+                clubbed=finding.get("clubbed", None),
+                details=finding.get("details", None),
                 confidence_score=0.8,
                 location=CodeLocation(
                     file_path="/".join(finding.get("file", "").split("/")[-2:]),
@@ -182,29 +183,45 @@ class PerformanceAnalyzer(QualityAnalyzer):
     def _check_complexity(self, file_path):
         info_count = 0
         results = ComplexityEstimator.analyze_file(file_path)
+        time, space, function, healthy_functions = [], [], [], []
         for r in results:
             time_complexity = r["time"]
             space_complexity = r["space"]
             if time_complexity in ["O(1)", "O(n)"]:
                 info_count += 1
+                healthy_functions.append(r["function"])
             else:
-                self.findings.append(
-                    {
-                        "type": "time_complexity",
-                        "severity": SeverityLevel.HIGH,
-                        "function": r["function"],
-                        "file": file_path,
-                        "description": f'Function "{r["function"]}" has high time complexity: {time_complexity} and space complexity: {space_complexity}',
-                        "suggestion": "Consider optimizing or breaking down the function.",
-                    }
-                )
+                time.append(time_complexity)
+                space.append(space_complexity)
+                function.append(r["function"])
+
+        if function:
+            clubbed = {
+                "Functions": function,
+                "Time Complexities": time,
+                "Space Complexities": space,
+            }
+            self.findings.append(
+                {
+                    "type": "time_complexity",
+                    "severity": SeverityLevel.HIGH,
+                    "clubbed": clubbed,
+                    "file": file_path,
+                    "description": f"{len(function)} function(s) have high complexities.",
+                    "details": "All the complexities are estimated using static analysis and may not reflect actual runtime performance.",
+                    "suggestion": "Consider optimizing or breaking down these functions.",
+                }
+            )
+
         if info_count > 0:
+            clubbed = {"Functions": healthy_functions}
             self.findings.append(
                 {
                     "type": "time_complexity",
                     "severity": SeverityLevel.INFO,
-                    "description": f'{info_count} functions have acceptable time complexity (O(1) or O(n)) in "{file_path.split("/")[-1]}"',
+                    "description": f'{info_count} functions have acceptable time complexity (O(1) or O(n)) in `{file_path.split("/")[-1]}`',
                     "file": file_path,
+                    "clubbed": clubbed,
                     "suggestion": "These functions are good to go.",
                 }
             )
@@ -245,35 +262,56 @@ class PerformanceAnalyzer(QualityAnalyzer):
 
     def _check_naive_sorting(self, tree, file_path):
         """Check for naive sorting implementations."""
+        clean = lambda s: s  # keep labels short & fixed
+        clubbed_search = {"issue": [], "function": [], "lines": []}
+        clubbed_sort = {"issue": [], "function": [], "lines": []}
+
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
                 # Look for bubble sort pattern
                 if self._is_bubble_sort_pattern(node):
-                    self.findings.append(
-                        {
-                            "type": "naive_sorting",
-                            "severity": SeverityLevel.MEDIUM,
-                            "file": file_path,
-                            "line": node.lineno,
-                            "function": node.name,
-                            "description": "Potential bubble sort or naive sorting implementation",
-                            "suggestion": "Use built-in sorted() function or list.sort() for better performance",
-                        }
-                    )
+                    clubbed_sort["issue"].append(clean("Naive Sorting"))
+                    clubbed_sort["function"].append(node.name)
+                    clubbed_sort["lines"].append(node.lineno)
 
                 # Look for inefficient search patterns
                 if self._is_linear_search_pattern(node):
-                    self.findings.append(
-                        {
-                            "type": "naive_search",
-                            "severity": SeverityLevel.MEDIUM,
-                            "file": file_path,
-                            "line": node.lineno,
-                            "function": node.name,
-                            "description": f'Function "{node.name}" have linear search in potentially large dataset',
-                            "suggestion": "Consider using sets, dictionaries, or binary search for better performance",
-                        }
-                    )
+                    clubbed_search["issue"].append(clean("Naive Search (Linear)"))
+                    clubbed_search["function"].append(node.name)
+                    clubbed_search["lines"].append(node.lineno)
+
+        if clubbed_search["issue"]:
+            all_lines = sorted({int(x) for x in clubbed_search["lines"]})
+            self.findings.append(
+                {
+                    "type": "naive_search",
+                    "severity": SeverityLevel.MEDIUM,
+                    "file": file_path,
+                    "clubbed": clubbed_search,  # columns: issue | function | lines | suggestion
+                    "lines": all_lines,
+                    "count": len(all_lines),
+                    "description": (
+                        f'{len(clubbed_search["issue"])} naive pattern(s) detected in `{os.path.basename(file_path)}`.'
+                    ),
+                    "suggestion": "Use set/dict membership or binary search.",
+                }
+            )
+        if clubbed_sort["issue"]:
+            all_lines = sorted({int(x) for x in clubbed_sort["lines"]})
+            self.findings.append(
+                {
+                    "type": "naive_sorting",
+                    "severity": SeverityLevel.MEDIUM,
+                    "file": file_path,
+                    "clubbed": clubbed_sort,
+                    "lines": all_lines,
+                    "count": len(all_lines),
+                    "description": (
+                        f'{len(clubbed_sort["issue"])} naive pattern(s) detected in `{os.path.basename(file_path)}`.'
+                    ),
+                    "suggestion": "Use built-in sorted() or list.sort().",
+                }
+            )
 
     def _is_bubble_sort_pattern(self, node):
         """Check if function contains bubble sort pattern."""
@@ -329,21 +367,26 @@ class PerformanceAnalyzer(QualityAnalyzer):
 
     def _check_recursive_functions(self, tree, file_path):
         """Check for recursive functions without memoization."""
+        functions = []
+        lines = []
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef):
                 if self._is_recursive_function(node):
                     if not self._has_memoization(node):
-                        self.findings.append(
-                            {
-                                "type": "recursive_without_memoization",
-                                "severity": SeverityLevel.MEDIUM,
-                                "file": file_path,
-                                "line": node.lineno,
-                                "function": node.name,
-                                "description": f'Function "{node.name}" has recursive function without memoization',
-                                "suggestion": "Consider adding memoization or using iterative approach for better performance",
-                            }
-                        )
+                        functions.append(node.name)
+                        lines.append(node.lineno)
+        if functions:
+            clubbed = {"Functions": functions, "Lines": lines}
+            self.findings.append(
+                {
+                    "type": "recursive_without_memoization",
+                    "severity": SeverityLevel.MEDIUM,
+                    "file": file_path,
+                    "clubbed": clubbed,
+                    "description": f"{len(functions)} recursive function(s) without memoization detected.",
+                    "suggestion": "Consider adding memoization or using iterative approach for better performance",
+                }
+            )
 
     def _is_recursive_function(self, node):
         """Check if function calls itself."""
@@ -369,8 +412,47 @@ class PerformanceAnalyzer(QualityAnalyzer):
                     return True
         return False
 
+    def format_target(self, t):
+        if isinstance(t, ast.Name):
+            return t.id
+        if isinstance(t, ast.Attribute):
+            return f"{self.format_target(t.value)}.{t.attr}"
+        if isinstance(t, ast.Subscript):
+            return f"{self.format_target(t.value)}[...]"
+        return ast.unparse(t) if hasattr(ast, "unparse") else type(t).__name__
+
+    def node_text(self, src, n):
+        # Prefer precise slice; fallback to best-effort
+        try:
+            txt = ast.get_source_segment(src, n)
+            if txt:
+                return txt
+        except Exception:
+            pass
+        lines = src.splitlines()
+        end = getattr(n, "end_lineno", n.lineno)
+        end_col = getattr(n, "end_col_offset", None)
+        if n.lineno == end and end_col is not None:
+            return lines[n.lineno - 1][n.col_offset : end_col]
+        return "\n".join(lines[n.lineno - 1 : end])  # coarse fallback
+
+    def enclosing_func(self, n):
+        while hasattr(n, "parent"):
+            n = n.parent
+            if isinstance(n, ast.FunctionDef):
+                return n.name
+        return None
+
     def _check_string_concatenation(self, tree, file_path):
         """Check for inefficient string concatenation."""
+        src = Path(file_path).read_text(encoding="utf-8")
+        tree = ast.parse(src, type_comments=True)
+        # stitch parents once
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                child.parent = parent
+
+        lines, targets, functions, codes = [], [], [], []
         for node in ast.walk(tree):
             if isinstance(node, ast.For):
                 # Look for string concatenation in loops
@@ -379,16 +461,27 @@ class PerformanceAnalyzer(QualityAnalyzer):
                         child.op, ast.Add
                     ):
                         # Check if target is likely a string
-                        self.findings.append(
-                            {
-                                "type": "string_concatenation",
-                                "severity": SeverityLevel.MEDIUM,
-                                "file": file_path,
-                                "line": child.lineno,
-                                "description": "String concatenation in loop - potential performance issue",
-                                "suggestion": 'Use list.append() and "".join() or f-strings for better performance',
-                            }
-                        )
+                        lines.append(child.lineno)
+                        targets.append(self.format_target(child.target))
+                        functions.append(self.enclosing_func(child) or "<module>")
+                        codes.append(self.node_text(src, child).strip())
+        if lines:
+            clubbed = {
+                "lines": lines,
+                "targets": targets,
+                "functions": functions,
+                "codes": codes,
+            }
+            self.findings.append(
+                {
+                    "type": "string_concatenation",
+                    "severity": SeverityLevel.LOW,
+                    "file": file_path,
+                    "clubbed": clubbed,
+                    "description": f"{len(lines)} instance(s) of string concatenation in loops detected.",
+                    "suggestion": "Use list to accumulate strings and join once at the end for better performance",
+                }
+            )
 
     def _check_inefficient_data_structures(self, tree, file_path):
         """Check for inefficient data structure usage."""
@@ -445,19 +538,30 @@ class PerformanceAnalyzer(QualityAnalyzer):
                         aggregated_findings[key].append(node.lineno)
 
         # Emit 1 finding per (issue_type, file_path)
+        clean = lambda s: str(s).replace("_", " ").title()
+
+        clubbed = {"issue": [], "count": [], "lines": [], "remediation": []}
         for (issue_type, path), lines in aggregated_findings.items():
+            clubbed["issue"].append(clean(issue_type))
+            clubbed["count"].append(len(lines))
+            clubbed["lines"].append(", ".join(map(str, sorted(set(lines)))))
+            clubbed["remediation"].append(
+                issue_suggestions.get(
+                    issue_type,
+                    "Consider optimizing this pattern for better performance.",
+                )
+            )
+
+        if clubbed["issue"]:
             self.findings.append(
                 {
                     "type": "inefficient_data_structure",
-                    "file": path,
+                    "file": file_path,
                     "severity": SeverityLevel.LOW,
-                    "lines": sorted(set(lines)),
-                    "count": len(lines),
-                    "description": f'{issue_type.replace("_", " ").title()} detected at {len(lines)} locations in "{os.path.basename(path)}"',
-                    "suggestion": issue_suggestions.get(
-                        issue_type,
-                        "Consider optimizing this pattern for better performance.",
-                    ),
+                    "clubbed": clubbed,
+                    "count": len(clubbed["lines"]),
+                    "description": f'{len(clubbed["issue"])} issue type(s) detected in `{os.path.basename(file_path)}`.',
+                    "suggestion": "Consider optimizing these patterns for better performance.",
                 }
             )
 
@@ -472,21 +576,14 @@ class PerformanceAnalyzer(QualityAnalyzer):
         ]
 
         lines = content.split("\n")
+        line_no, line_list = [], []
         for i, line in enumerate(lines, 1):
             # Check for regex compilation not at module level
             if re.search(regex_compile_pattern, line):
                 # Simple heuristic: if indented, might be in function/loop
                 if line.startswith("    ") or line.startswith("\t"):
-                    self.findings.append(
-                        {
-                            "type": "regex_compilation",
-                            "severity": SeverityLevel.LOW,
-                            "file": file_path,
-                            "line": i,
-                            "description": "Regex compilation inside function - consider module-level compilation",
-                            "suggestion": "Compile regex patterns at module level for better performance",
-                        }
-                    )
+                    line_no.append(i)
+                    line_list.append(line.strip())
 
             # Check for multiple regex operations that could be optimized
             regex_count = sum(
@@ -503,3 +600,28 @@ class PerformanceAnalyzer(QualityAnalyzer):
                         "suggestion": "Consider combining regex patterns or pre-compiling for efficiency",
                     }
                 )
+        if line_no:
+            clubbed = {"lines": line_no, "line": line_list}
+            self.findings.append(
+                {
+                    "type": "regex_compilation",
+                    "severity": SeverityLevel.LOW,
+                    "file": file_path,
+                    "clubbed": clubbed,
+                    "count": len(line_no),
+                    "description": f"{len(line_no)} regex compilation(s) inside functions detected.",
+                    "suggestion": "Compile regex patterns at module level for better performance",
+                }
+            )
+
+    def _create_empty_result(self) -> AnalysisResult:
+        """Create an empty analysis result."""
+        metrics = AnalysisMetrics(
+            analyzer_name=self.name,
+            execution_time_seconds=0.0,
+            files_analyzed=0,
+            findings_count=0,
+            error_count=0,
+            success=True,
+        )
+        return AnalysisResult(findings=[], metrics=metrics, metadata={})

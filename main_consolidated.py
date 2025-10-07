@@ -9,6 +9,7 @@ import streamlit as st
 import asyncio
 import os
 import logging
+import re
 from termcolor import colored
 from typing import List
 from pathlib import Path
@@ -335,7 +336,7 @@ class ConsolidatedCodeReviewApp:
             st.session_state.show_glossary = True
             st.rerun()
 
-        st.caption(f"🔖 Version:1.5")
+        st.caption(f"🔖 Version:1.6")
 
     def _run_analysis(
         self,
@@ -588,7 +589,14 @@ class ConsolidatedCodeReviewApp:
                 index=0,
                 # default=sorted(titles),
             )
-            options_two = ["All"] + sorted(paths)
+            valid_paths = [
+                p
+                for p in paths
+                if re.match(
+                    r"^[\w\-/\\]+\.py$", p.strip()
+                )  # matches file.py or dir/file.py only
+            ]
+            options_two = ["All"] + sorted(valid_paths)
             finding_file_filter = st.selectbox("Filter by Files:", options_two, index=0)
 
         # Apply filters
@@ -646,7 +654,11 @@ class ConsolidatedCodeReviewApp:
             col1, col2 = st.columns([3, 1])
 
             with col1:
-                st.markdown(f"**Description:** {finding.description}")
+                # st.markdown(f"**Description:** {finding.description}")
+                st.markdown(
+                    f"**Description:**  {finding.description}",
+                    unsafe_allow_html=True,
+                )
 
                 if finding.details is not None:
                     details = finding.details
@@ -665,7 +677,8 @@ class ConsolidatedCodeReviewApp:
                         with st.expander(
                             f"{finding.title} -- {os.path.basename(finding.location.file_path)}"
                         ):
-                            st.write("There is some problem showing this info")
+                            rprint(finding.clubbed)
+                            st.write(f"There is some problem showing this info {e}")
 
                 if finding.location.file_path:
                     location_str = f"{finding.location.file_path}"
@@ -1092,8 +1105,7 @@ class ConsolidatedCodeReviewApp:
 
         1. **Select Target**:
            - Choose between directory or single file analysis
-           - Enter the full path to your target
-           - Example: `/Users/username/projects/my_app`
+           - Upload the zip file of folder for directory analysis and single python file for file analysis
 
         2. **Choose Analyzers**:
            - Select from available security and quality analyzers
@@ -1252,7 +1264,7 @@ class ConsolidatedCodeReviewApp:
                         "what_it_finds": [
                             "High complexity functions",
                             "Low maintainability index",
-                            "Code duplication",
+                            "Function duplication",
                             "Branches in the code",
                         ],
                         "severity_focus": "Medium and Low severity findings",

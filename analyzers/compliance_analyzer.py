@@ -106,7 +106,7 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
         findings = []
         for finding in results:
             unified_finding = UnifiedFinding(
-                title=f"Compliance Issue: {finding['type'].replace('_', ' ').title()}",
+                title=f"{finding['type'].replace('_', ' ').title()}",
                 severity=finding.get("severity", SeverityLevel.INFO),
                 category=FindingCategory.COMPLIANCE,
                 description=finding.get("description", ""),
@@ -147,9 +147,6 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
         # Run ScanCode with output to file
         output_file = "scancode_report.json"
         try:
-            # print(
-            #     colored(f"Scanning codebase scancode at {codebase_path}...", "yellow")
-            # )
             subprocess.run(
                 ["scancode", "-clpeui", "--json-pp", output_file, codebase_path],
                 check=True,
@@ -403,3 +400,15 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
         # Run semgrep rules defined for privacy
         self.run_semgrep_rules(codebase_path)
         self.process_semgrep_findings()
+
+    def _create_empty_result(self) -> AnalysisResult:
+        """Create an empty analysis result."""
+        metrics = AnalysisMetrics(
+            analyzer_name=self.name,
+            execution_time_seconds=0.0,
+            files_analyzed=0,
+            findings_count=0,
+            error_count=0,
+            success=True,
+        )
+        return AnalysisResult(findings=[], metrics=metrics, metadata={})
