@@ -336,7 +336,7 @@ class ConsolidatedCodeReviewApp:
             st.session_state.show_glossary = True
             st.rerun()
 
-        st.caption(f"🔖 Version:1.6")
+        st.caption(f"🔖 Version:1.6.1")
 
     def _run_analysis(
         self,
