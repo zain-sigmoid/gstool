@@ -1105,8 +1105,7 @@ class ConsolidatedCodeReviewApp:
 
         1. **Select Target**:
            - Choose between directory or single file analysis
-           - Enter the full path to your target
-           - Example: `/Users/username/projects/my_app`
+           - Upload the zip file of folder for directory analysis and single python file for file analysis
 
         2. **Choose Analyzers**:
            - Select from available security and quality analyzers
