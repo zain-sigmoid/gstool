@@ -13,8 +13,6 @@ from collections import defaultdict, Counter
 from core.tool_runner import ToolRunner
 from core.file_utils import find_python_files
 from core.interfaces import QualityAnalyzer
-from termcolor import colored
-from rich import print as rprint
 from utils.mi import MIDiagnose
 from utils.analyze import analyze_function_in_file
 from utils.duplicate_code import run_jscpd_analysis
@@ -200,7 +198,6 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                 yield file_path, funcs
 
     def _cc_rank_mapping(self, rank):
-        print(colored(f"Mapping rank: {rank}, type of {type(rank)}", "yellow"))
         cc_rank_mapping = {
             "A": "Low",
             "B": "Low",
@@ -227,7 +224,6 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
 
         try:
             cc_data = json.loads(cc_output)
-            rprint(cc_data)
             high_complexity_functions = 0
             total_functions = 0
             for file_path, functions in self._iter_cc_functions(cc_data):
@@ -265,7 +261,6 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
 
         except json.JSONDecodeError:
             traceback.print_exc()
-            print(colored("Error processing radon cyclomatic complexity output", "red"))
             pass
 
     def _get_file_loc(self, file_path):
@@ -461,7 +456,6 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
 
         except Exception as e:
             traceback.print_exc()
-            print(colored(f"Error parsing MI output: {e}", "red"))
 
     def _manual_complexity_analysis(self, path):
         """Manual complexity analysis when radon is not available."""
@@ -520,7 +514,6 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
 
     def _analyze_coupling(self, python_files):
         """Analyze coupling and cohesion metrics."""
-        # print(colored("analyzing coupling", "yellow"))
         self.usage_coupling = defaultdict(Counter)
 
         for file_path in python_files:
@@ -568,7 +561,6 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                 high_coupled_modules = [
                     mod for mod, count in usage_counter.items() if count >= 10
                 ]
-                # print(colored("high coupled modules: ", "yellow"), high_coupled_modules)
                 if len(high_coupled_modules) > 3:
                     self.findings.append(
                         {
