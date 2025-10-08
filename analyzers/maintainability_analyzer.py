@@ -3,6 +3,7 @@ Maintainability Analysis Module
 Analyzes code maintainability including complexity, duplication, and coupling.
 """
 
+import os
 import ast
 import json
 import asyncio
@@ -87,7 +88,9 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
         start_time = asyncio.get_event_loop().time()
         python_files = self._find_python_files(config.target_path)
         if not python_files:
-            logger.warning(f"No Python files found in {config.target_path}")
+            logger.warning(
+                f"No Python files found in {os.path.basename(config.target_path)}"
+            )
             return self._create_empty_result()
 
         analyzer_config = config.analyzer_configs.get(
