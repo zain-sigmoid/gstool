@@ -8,10 +8,10 @@ import os
 import ast
 import re
 import logging
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
 import asyncio
 import traceback
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Tuple
 from core.interfaces import QualityAnalyzer
 from core.file_utils import find_python_files
 from core.models import (
@@ -83,12 +83,16 @@ class ObservabilityAnalyzer(QualityAnalyzer):
         start_time = asyncio.get_event_loop().time()
 
         try:
-            logger.info(f"Starting observability analysis of {config.target_path}")
+            logger.info(
+                f"Starting observability analysis of {os.path.basename(config.target_path)}"
+            )
 
             # Find Python files
             python_files = self._find_python_files(config.target_path)
             if not python_files:
-                logger.warning(f"No Python files found in {config.target_path}")
+                logger.warning(
+                    f"No Python files found in {os.path.basename(config.target_path)}"
+                )
                 return self._create_empty_result()
 
             logger.info(f"Found {len(python_files)} Python files to analyze")
@@ -460,8 +464,7 @@ class ObservabilityAnalyzer(QualityAnalyzer):
                     f["name"] for f in functions_without_logging
                 ],
             }
-
-            if score < 25 and total_funcs > 2:
+            if score < 25:
                 poor_files.append(file_info)
             else:
                 fair_files.append(file_info)
@@ -487,7 +490,7 @@ class ObservabilityAnalyzer(QualityAnalyzer):
                 confidence_score=0.8,
                 location=CodeLocation(file_path=Path(target_path).name),
                 rule_id="POOR_OBSERVABILITY",
-                remediation_guidance="Add logging statements to improve observability across critical functions.",
+                remediation_guidance="Add logging statements to improve observability across functions.",
                 remediation_complexity=ComplexityLevel.MODERATE,
                 source_analyzer=self.name,
                 tags={"observability", "logging_coverage"},
