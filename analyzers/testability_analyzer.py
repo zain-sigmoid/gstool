@@ -8,9 +8,8 @@ import os
 import ast
 import re
 import logging
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Set, Tuple
 import asyncio
+from typing import List, Dict, Any, Set, Tuple
 from core.interfaces import QualityAnalyzer
 from core.file_utils import find_python_files
 from core.models import (
@@ -83,12 +82,16 @@ class TestabilityAnalyzer(QualityAnalyzer):
         start_time = asyncio.get_event_loop().time()
 
         try:
-            logger.info(f"Starting testability analysis of {config.target_path}")
+            logger.info(
+                f"Starting testability analysis of {os.path.basename(config.target_path)}"
+            )
 
             # Find Python files
             python_files, test_files = self._find_python_files(config.target_path)
             if not python_files:
-                logger.warning(f"No Python files found in {config.target_path}")
+                logger.warning(
+                    f"No Python files found in {os.path.basename(config.target_path)}"
+                )
                 return self._create_empty_result()
 
             logger.info(
@@ -322,7 +325,6 @@ class TestabilityAnalyzer(QualityAnalyzer):
     async def _generate_findings(
         self, analysis_results: Dict[str, Any], target_path: str, config: Dict[str, Any]
     ) -> List[UnifiedFinding]:
-        
         """Generate findings based on testability analysis results."""
         findings = []
 
@@ -340,7 +342,9 @@ class TestabilityAnalyzer(QualityAnalyzer):
                 category=FindingCategory.TESTABILITY,
                 severity=severity,
                 confidence_score=0.9,
-                location=CodeLocation(file_path="/".join(str(target_path).split("/")[-2:])),
+                location=CodeLocation(
+                    file_path="/".join(str(target_path).split("/")[-2:])
+                ),
                 rule_id="LOW_TEST_COVERAGE",
                 remediation_guidance=f"Add unit tests for untested functions to reach {minimum_threshold}% coverage",
                 remediation_complexity=ComplexityLevel.MODERATE,
@@ -365,7 +369,9 @@ class TestabilityAnalyzer(QualityAnalyzer):
                 category=FindingCategory.TESTABILITY,
                 severity=SeverityLevel.MEDIUM,
                 confidence_score=0.8,
-                location=CodeLocation(file_path="/".join(str(target_path).split("/")[-2:])),
+                location=CodeLocation(
+                    file_path="/".join(str(target_path).split("/")[-2:])
+                ),
                 rule_id="MISSING_TEST_STRUCTURE",
                 remediation_guidance="Create a 'tests' or 'test' folder for better test organization",
                 remediation_complexity=ComplexityLevel.SIMPLE,
@@ -383,7 +389,9 @@ class TestabilityAnalyzer(QualityAnalyzer):
                 category=FindingCategory.TESTABILITY,
                 severity=SeverityLevel.HIGH,
                 confidence_score=0.95,
-                location=CodeLocation(file_path="/".join(str(target_path).split("/")[-2:])),
+                location=CodeLocation(
+                    file_path="/".join(str(target_path).split("/")[-2:])
+                ),
                 rule_id="NO_TEST_FILES",
                 remediation_guidance="Create test files with 'test_' prefix or '_test' suffix",
                 remediation_complexity=ComplexityLevel.MODERATE,
@@ -404,10 +412,16 @@ class TestabilityAnalyzer(QualityAnalyzer):
                     if untested_in_file:
                         functions_by_file[file_path] = untested_in_file
 
+                # {', '.join(untested_funcs[:5])}{'...' if len(untested_funcs) > 5 else ''}
+
                 for file_path, untested_funcs in functions_by_file.items():
+                    clubbed = {
+                        "untested_functions": untested_funcs,
+                    }
                     finding = UnifiedFinding(
                         title="Untested Functions",
-                        description=f"Functions without unit tests: {', '.join(untested_funcs[:5])}{'...' if len(untested_funcs) > 5 else ''}",
+                        description=f"Functions without unit tests: **{len(untested_funcs)}**",
+                        clubbed=clubbed,
                         category=FindingCategory.TESTABILITY,
                         severity=(
                             SeverityLevel.LOW
@@ -415,7 +429,9 @@ class TestabilityAnalyzer(QualityAnalyzer):
                             else SeverityLevel.MEDIUM
                         ),
                         confidence_score=0.8,
-                        location=CodeLocation(file_path="/".join(str(file_path).split("/")[-2:])),
+                        location=CodeLocation(
+                            file_path="/".join(str(file_path).split("/")[-2:])
+                        ),
                         rule_id="UNTESTED_FUNCTIONS",
                         remediation_guidance=f"Add unit tests for {len(untested_funcs)} untested function(s)",
                         remediation_complexity=ComplexityLevel.MODERATE,
