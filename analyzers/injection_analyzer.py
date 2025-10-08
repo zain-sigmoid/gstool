@@ -103,12 +103,16 @@ class InjectionAnalyzer(SecurityAnalyzer):
         start_time = asyncio.get_event_loop().time()
 
         try:
-            logger.info(f"Starting injection analysis of {config.target_path}")
+            logger.info(
+                f"Starting injection analysis of {os.path.basename(config.target_path)}"
+            )
 
             # Find Python files
             python_files = self._find_python_files(config.target_path)
             if not python_files:
-                logger.warning(f"No Python files found in {config.target_path}")
+                logger.warning(
+                    f"No Python files found in {os.path.basename(config.target_path)}"
+                )
                 return self._create_empty_result()
 
             logger.info(f"Found {len(python_files)} Python files to analyze")
@@ -438,7 +442,7 @@ class InjectionAnalyzer(SecurityAnalyzer):
                 continue
 
             finding = UnifiedFinding(
-                title=f"Injection Vulnerability: {vulnerability['vulnerability_type'].replace('_', ' ').title()}",
+                title=f"{vulnerability['vulnerability_type'].replace('_', ' ').title()}",
                 description=vulnerability["description"],
                 category=FindingCategory.SECURITY,
                 severity=vulnerability["severity"],

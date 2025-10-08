@@ -9,10 +9,9 @@ import subprocess
 import json
 import logging
 import statistics
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
 import asyncio
 import traceback
+from typing import List, Dict, Any, Tuple
 from collections import defaultdict
 from core.interfaces import QualityAnalyzer
 from core.file_utils import find_python_files
@@ -110,12 +109,16 @@ class ReadabilityAnalyzer(QualityAnalyzer):
         start_time = asyncio.get_event_loop().time()
 
         try:
-            logger.info(f"Starting readability analysis of {config.target_path}")
+            logger.info(
+                f"Starting readability analysis of {os.path.basename(config.target_path)}"
+            )
 
             # Find Python files
             python_files = self._find_python_files(config.target_path)
             if not python_files:
-                logger.warning(f"No Python files found in {config.target_path}")
+                logger.warning(
+                    f"No Python files found in {os.path.basename(config.target_path)}"
+                )
                 return self._create_empty_result()
 
             logger.info(f"Found {len(python_files)} Python files to analyze")
@@ -464,6 +467,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
         for issue in pylint_output:
             symbol = issue.get("symbol", "")
             message_id = issue.get("message-id", "")
+            obj = issue.get("obj", "")
 
             # Map to our readability categories
             issue_info = self.readability_issue_mapping.get(
@@ -479,6 +483,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             processed_issue = {
                 "symbol": symbol,
                 "message_id": message_id,
+                "object": obj,
                 "message": issue.get("message", ""),
                 "line_number": issue.get("line", 0),
                 "column": issue.get("column", 0),
@@ -525,6 +530,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             "unused-variable",
             "unused-import",
             "trailing-whitespace",
+            "bad-indentation",
         }
 
         # Fallback normalization via title → symbol (covers tools that set only title)
@@ -539,6 +545,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             "unused variable": "unused-variable",
             "unused import": "unused-import",
             "trailing whitespace": "trailing-whitespace",
+            "bad indentation": "bad-indentation",
         }
 
         # Keyed by (file_path, normalized_symbol)

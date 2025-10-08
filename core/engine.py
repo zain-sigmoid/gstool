@@ -3,13 +3,12 @@ Unified Analysis Engine - Core orchestration system for all analysis modules.
 """
 
 # Flake8: noqa: E501
+import os
 import asyncio
 import time
 import logging
 import traceback
-from pathlib import Path
-from typing import List, Dict, Any, Optional, Set
-from datetime import datetime
+from typing import List, Dict, Any, Optional
 
 from .models import (
     ConsolidatedReport,
@@ -38,7 +37,9 @@ class UnifiedAnalysisEngine:
         self.transformer = DataTransformer()
         self._analysis_history: List[ConsolidatedReport] = []
 
-    async def analyze(self, config: AnalysisConfiguration, progress_cb=None) -> ConsolidatedReport:
+    async def analyze(
+        self, config: AnalysisConfiguration, progress_cb=None
+    ) -> ConsolidatedReport:
         """
         Run comprehensive analysis using all enabled analyzers.
 
@@ -50,7 +51,9 @@ class UnifiedAnalysisEngine:
         """
         start_time = time.time()
 
-        logger.info(f"Starting unified analysis of {config.target_path}")
+        logger.info(
+            f"Starting unified analysis of {os.path.basename(config.target_path)}"
+        )
 
         # Initialize report
         report = ConsolidatedReport(
@@ -71,7 +74,9 @@ class UnifiedAnalysisEngine:
 
             # Run analysis modules
             if config.parallel_execution:
-                analysis_results = await self._run_parallel_analysis(analyzers, config, progress_cb)
+                analysis_results = await self._run_parallel_analysis(
+                    analyzers, config, progress_cb
+                )
             else:
                 analysis_results = await self._run_sequential_analysis(
                     analyzers, config, progress_cb
@@ -150,7 +155,10 @@ class UnifiedAnalysisEngine:
         self._analysis_history.clear()
 
     async def _run_parallel_analysis(
-        self, analyzers: List[BaseAnalyzer], config: AnalysisConfiguration, progress_cb=None
+        self,
+        analyzers: List[BaseAnalyzer],
+        config: AnalysisConfiguration,
+        progress_cb=None,
     ) -> List[AnalysisResult]:
         """Run analyzers in parallel."""
         tasks = []
@@ -212,7 +220,10 @@ class UnifiedAnalysisEngine:
             ]
 
     async def _run_sequential_analysis(
-        self, analyzers: List[BaseAnalyzer], config: AnalysisConfiguration, progress_cb=None
+        self,
+        analyzers: List[BaseAnalyzer],
+        config: AnalysisConfiguration,
+        progress_cb=None,
     ) -> List[AnalysisResult]:
         """Run analyzers sequentially."""
         results = []
