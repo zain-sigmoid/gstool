@@ -12,7 +12,7 @@ import logging
 import traceback
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-
+from collections import defaultdict
 from utils.prod_shift import ensure_gitleaks
 from core.interfaces import SecurityAnalyzer, AnalysisResult
 from core.models import (
@@ -76,7 +76,9 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
         error_count = 0
 
         try:
-            logger.info(f"Starting hardcoded secrets analysis of {config.target_path}")
+            logger.info(
+                f"Starting hardcoded secrets analysis of {os.path.basename(config.target_path)}"
+            )
 
             # Check if Gitleaks is available
             if not self._check_gitleaks_available():
@@ -209,7 +211,7 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
             # logger.debug(f"Running command: {' '.join(commandv2)}")
 
             cmd = [os.fspath(x) for x in commandv2]
-            logger.debug(f"Running command: {' '.join(cmd)}")
+            logger.debug(f"Running gitleaks command:")
             # Run Gitleaks
             result = subprocess.run(
                 cmd,
@@ -264,75 +266,135 @@ class HardcodedSecretsAnalyzer(SecurityAnalyzer):
         Returns:
             List of unified findings
         """
+        grouped = defaultdict(list)
         findings = []
 
         for result in gitleaks_results:
-            try:
-                finding = self._create_unified_finding(result)
-                if finding:
-                    findings.append(finding)
-            except Exception as e:
-                traceback.print_exc()
-                logger.warning(f"Failed to transform Gitleaks result: {str(e)}")
-                continue
+            key = (result.get("File", ""), result.get("RuleID", ""))
+            grouped[key].append(result)
+        try:
+            findings = self._create_unified_finding(grouped)
+        except Exception as e:
+            traceback.print_exc()
+            logger.error(f"Failed to transform Gitleaks result: {str(e)}")
 
         return findings
 
     def _create_unified_finding(
-        self, gitleaks_result: Dict[str, Any]
+        self, grouped: Dict[Any, List[Dict[str, Any]]]
     ) -> Optional[UnifiedFinding]:
         """Create a unified finding from Gitleaks result."""
-        file_path = gitleaks_result.get("File", "")
-        line_number = gitleaks_result.get("StartLine", gitleaks_result.get("Line"))
-        rule_id = gitleaks_result.get("RuleID", "")
+        unified_findings = []
+        for (file_path, rule_id), group_items in grouped.items():
+            # Collect line numbers and snippets for context
+            lines = sorted(
+                [
+                    item.get("StartLine", item.get("Line"))
+                    for item in group_items
+                    if item.get("StartLine") or item.get("Line")
+                ]
+            )
 
-        # Get CWE mapping
-        cwe_info = self._map_rule_to_cwe(rule_id)
+            snippets = [
+                (
+                    (item.get("Match") or item.get("Secret") or "")
+                    if len(item.get("Match", "")) < 50
+                    else (item.get("Match") or item.get("Secret") or "")[:50] + "..."
+                )
+                for item in group_items
+            ]
 
-        # Determine severity
-        severity = self._determine_severity(rule_id)
+            # Take first item for metadata
+            base_item = group_items[0]
+            cwe_info = self._map_rule_to_cwe(rule_id)
+            severity = self._determine_severity(rule_id)
+            location = CodeLocation(
+                file_path="/".join(file_path.split("/")[-2:]),
+            )
 
-        # Create code location
-        location = CodeLocation(
-            file_path="/".join(file_path.split("/")[-2:]),
-            line_number=line_number,
-            end_line_number=gitleaks_result.get("EndLine"),
-        )
+            clubbed = {
+                "lines": lines,
+                "snippets": snippets,
+            }
+            unified_findings.append(
+                UnifiedFinding(
+                    title=f"{' '.join(rule_id.split('-')).title()}",
+                    description=base_item.get(
+                        "Description",
+                        f"Potential hardcoded secret detected ({len(lines)} occurrences)",
+                    ),
+                    clubbed=clubbed,
+                    category=FindingCategory.SECURITY,
+                    severity=severity,
+                    location=location,
+                    rule_id=rule_id,
+                    cwe_id=cwe_info.get("cwe"),
+                    # code_snippet="\n".join(snippets),  # show up to 3 examples
+                    remediation_guidance=self._get_remediation_guidance(rule_id),
+                    remediation_complexity=self._get_remediation_complexity(rule_id),
+                    source_analyzer=self.name,
+                    compliance_frameworks=["PCI-DSS", "SOX", "GDPR", "HIPAA"],
+                    confidence_score=self._calculate_confidence(base_item),
+                    tags={"secrets", "credentials", "security", "hardcoded"},
+                    extra_data={
+                        "gitleaks_grouped": clubbed,
+                        "cwe_description": cwe_info.get("description"),
+                        "cwe_url": cwe_info.get("url"),
+                    },
+                )
+            )
+        # file_path = gitleaks_result.get("File", "")
+        # line_number = gitleaks_result.get("StartLine", gitleaks_result.get("Line"))
+        # rule_id = gitleaks_result.get("RuleID", "")
 
-        # Get secret snippet (truncated for security)
-        matched = gitleaks_result.get("Match", "")
-        secret = gitleaks_result.get("Secret", "")
-        if matched:
-            code_snippet = matched[:50] + "..." if len(matched) > 50 else matched
-        else:
-            code_snippet = secret[:50] + "..." if len(secret) > 50 else secret
+        # # Get CWE mapping
+        # cwe_info = self._map_rule_to_cwe(rule_id)
 
-        # Create unified finding
-        finding = UnifiedFinding(
-            title=f"Hardcoded Secret: {rule_id}",
-            description=gitleaks_result.get(
-                "Description", f"Potential hardcoded secret detected: {rule_id}"
-            ),
-            category=FindingCategory.SECURITY,
-            severity=severity,
-            location=location,
-            rule_id=rule_id,
-            cwe_id=cwe_info.get("cwe"),
-            code_snippet=code_snippet,
-            remediation_guidance=self._get_remediation_guidance(rule_id),
-            remediation_complexity=self._get_remediation_complexity(rule_id),
-            source_analyzer=self.name,
-            compliance_frameworks=["PCI-DSS", "SOX", "GDPR", "HIPAA"],
-            confidence_score=self._calculate_confidence(gitleaks_result),
-            tags={"secrets", "credentials", "security", "hardcoded"},
-            extra_data={
-                "gitleaks_data": gitleaks_result,
-                "cwe_description": cwe_info.get("description"),
-                "cwe_url": cwe_info.get("url"),
-            },
-        )
+        # # Determine severity
+        # severity = self._determine_severity(rule_id)
 
-        return finding
+        # # Create code location
+        # location = CodeLocation(
+        #     file_path="/".join(file_path.split("/")[-2:]),
+        #     line_number=line_number,
+        #     end_line_number=gitleaks_result.get("EndLine"),
+        # )
+
+        # # Get secret snippet (truncated for security)
+        # matched = gitleaks_result.get("Match", "")
+        # secret = gitleaks_result.get("Secret", "")
+        # rule_id = gitleaks_result.get("RuleID", "unknown")
+        # if matched:
+        #     code_snippet = matched[:50] + "..." if len(matched) > 50 else matched
+        # else:
+        #     code_snippet = secret[:50] + "..." if len(secret) > 50 else secret
+
+        # # Create unified finding
+        # finding = UnifiedFinding(
+        #     title=f"Hardcoded Secret: {rule_id}",
+        #     description=gitleaks_result.get(
+        #         "Description", f"Potential hardcoded secret detected: {rule_id}"
+        #     ),
+        #     category=FindingCategory.SECURITY,
+        #     severity=severity,
+        #     location=location,
+        #     rule_id=rule_id,
+        #     cwe_id=cwe_info.get("cwe"),
+        #     code_snippet=code_snippet,
+        #     remediation_guidance=self._get_remediation_guidance(rule_id),
+        #     remediation_complexity=self._get_remediation_complexity(rule_id),
+        #     source_analyzer=self.name,
+        #     compliance_frameworks=["PCI-DSS", "SOX", "GDPR", "HIPAA"],
+        #     confidence_score=self._calculate_confidence(gitleaks_result),
+        #     tags={"secrets", "credentials", "security", "hardcoded"},
+        #     extra_data={
+        #         "gitleaks_data": gitleaks_result,
+        #         "cwe_description": cwe_info.get("description"),
+        #         "cwe_url": cwe_info.get("url"),
+        #     },
+        # )
+
+        return unified_findings
 
     def _map_rule_to_cwe(self, rule_id: str) -> Dict[str, str]:
         """Map Gitleaks rule ID to CWE information."""
