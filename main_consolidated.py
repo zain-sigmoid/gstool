@@ -673,12 +673,12 @@ class ConsolidatedCodeReviewApp:
                         ):
                             st.table(df)
                     except Exception as e:
-                        traceback.print_exc()
+                        # traceback.print_exc()
+                        logger.error(f"Failed to render clubbed data: {str(e)}")
                         with st.expander(
                             f"{finding.title} -- {os.path.basename(finding.location.file_path)}"
                         ):
-                            rprint(finding.clubbed)
-                            st.write(f"There is some problem showing this info {e}")
+                            st.write(f"There is some problem showing this info")
 
                 if finding.location.file_path:
                     location_str = f"{finding.location.file_path}"
