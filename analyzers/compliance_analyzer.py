@@ -12,7 +12,6 @@ import traceback
 from typing import List, Dict, Any
 from pathlib import Path
 from collections import defaultdict
-from termcolor import colored
 from core.file_utils import find_python_files
 from core.interfaces import ComplianceAnalyzer
 from core.models import (
@@ -110,6 +109,9 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
                 severity=finding.get("severity", SeverityLevel.INFO),
                 category=FindingCategory.COMPLIANCE,
                 description=finding.get("description", ""),
+                details=finding.get("details", None),
+                clubbed=finding.get("clubbed", None),
+                code_snippet=finding.get("code_snippet", None),
                 confidence_score=0.8,
                 location=CodeLocation(
                     file_path="/".join(finding.get("file", "").split("/")[-2:]),
@@ -140,6 +142,31 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
             )
         except subprocess.CalledProcessError:
             traceback.print_exc()
+
+    def result_severity_mapping(self, license_name: str) -> str:
+        mapping = {
+            "detected_license_expression": "info",
+            "license_detections": "medium",
+            "license_clues": "low",
+            "percentage_of_license_text": "info",
+            "copyrights": "medium",
+            "holders": "medium",
+            "authors": "low",
+            "emails": "low",
+            "urls": "low",
+        }
+        return mapping.get(license_name, "info")
+
+    def severity_mapping(self, severity: str) -> SeverityLevel:
+        """Map SeverityLevel to string for display."""
+        mapping = {
+            "critical": SeverityLevel.CRITICAL,
+            "high": SeverityLevel.HIGH,
+            "medium": SeverityLevel.MEDIUM,
+            "low": SeverityLevel.LOW,
+            "info": SeverityLevel.INFO,
+        }
+        return mapping.get(severity, SeverityLevel.INFO)
 
     async def check_license_compliance(self, codebase_path):
         """Checks for licensing compliance violations using ScanCode Toolkit output."""
@@ -177,128 +204,173 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
             return
 
         data = json.loads(report_file.read_text())
-
+        grouped = defaultdict(list)
         for file_info in data.get("files", []):
             path = file_info.get("path")
 
             # Check each field and add finding if not empty
             if file_info.get("detected_license_expression"):
-                self.findings.append(
+                grouped[
+                    (
+                        path,
+                        "license_compliance",
+                        self.result_severity_mapping("detected_license_expression"),
+                    )
+                ].append(
                     {
-                        "type": "license_compliance",
                         "severity": SeverityLevel.INFO,
-                        "file": path,
                         "description": f"Detected license: {file_info['detected_license_expression']}",
                         "suggestion": "Review license for compatibility.",
                     }
                 )
 
             if file_info.get("license_detections"):
-                self.findings.append(
-                    {
-                        "type": "license_compliance",
-                        "severity": SeverityLevel.MEDIUM,
-                        "file": path,
-                        "description": f"{len(file_info['license_detections'])} license detection(s) found.",
-                        "suggestion": "Inspect the license matches and verify usage rights.",
-                    }
-                )
+                for lic in file_info["license_detections"]:
+                    self.findings.append(
+                        {
+                            "file": path,
+                            "type": "license_compliance",
+                            "severity": SeverityLevel.MEDIUM,
+                            "description": f"{len(file_info['license_detections'])} license detection(s) found.",
+                            "suggestion": "Inspect license matches and verify usage rights.",
+                            "details": lic,
+                        }
+                    )
 
             if file_info.get("license_clues"):
-                self.findings.append(
+                grouped[
+                    (
+                        path,
+                        "license_compliance",
+                        self.result_severity_mapping("license_clues"),
+                    )
+                ].append(
                     {
-                        "type": "license_compliance",
                         "severity": SeverityLevel.LOW,
-                        "file": path,
                         "description": "Potential license clues found in file.",
                         "suggestion": "Verify and clarify license references.",
                     }
                 )
 
             if file_info.get("percentage_of_license_text", 0) > 0:
-                self.findings.append(
+                grouped[
+                    (
+                        path,
+                        "license_compliance",
+                        self.result_severity_mapping("percentage_of_license_text"),
+                    )
+                ].append(
                     {
-                        "type": "license_compliance",
                         "severity": SeverityLevel.INFO,
-                        "file": path,
                         "description": f"{file_info['percentage_of_license_text']}% license text detected.",
                         "suggestion": "Confirm if this file is a license or contains embedded license.",
                     }
                 )
 
             if file_info.get("copyrights"):
-                self.findings.append(
+                grouped[
+                    (
+                        path,
+                        "copyright",
+                        self.result_severity_mapping("copyrights"),
+                    )
+                ].append(
                     {
-                        "type": "copyright",
                         "severity": SeverityLevel.MEDIUM,
-                        "file": path,
                         "description": "Copyright statement(s) found.",
                         "suggestion": "Check if attribution is required.",
-                        "line": next(
-                            (e["start_line"] for e in file_info.get("copyrights", [])),
-                            None,
-                        ),
+                        "line": [
+                            e["start_line"] for e in file_info.get("copyrights", [])
+                        ],
                     }
                 )
 
             if file_info.get("holders"):
-                self.findings.append(
+                grouped[
+                    (
+                        path,
+                        "copyright",
+                        self.result_severity_mapping("holders"),
+                    )
+                ].append(
                     {
-                        "type": "copyright",
                         "severity": SeverityLevel.MEDIUM,
-                        "file": path,
                         "description": "Copyright holder(s) listed.",
                         "suggestion": "Ensure holder rights are acknowledged properly.",
-                        "line": next(
-                            (e["start_line"] for e in file_info.get("holders", [])),
-                            None,
-                        ),
+                        "line": [e["start_line"] for e in file_info.get("holders", [])],
                     }
                 )
 
             if file_info.get("authors"):
-                self.findings.append(
+                grouped[
+                    (
+                        path,
+                        "copyright",
+                        self.result_severity_mapping("authors"),
+                    )
+                ].append(
                     {
-                        "type": "copyright",
                         "severity": SeverityLevel.LOW,
-                        "file": path,
                         "description": "Author(s) found in file.",
                         "suggestion": "Review author obligations if any.",
-                        "line": next(
-                            (e["start_line"] for e in file_info.get("authors", [])),
-                            None,
-                        ),
+                        "line": [e["start_line"] for e in file_info.get("authors", [])],
                     }
                 )
 
             if file_info.get("emails"):
-                self.findings.append(
+                grouped[
+                    (
+                        path,
+                        "copyright",
+                        self.result_severity_mapping("emails"),
+                    )
+                ].append(
                     {
-                        "type": "copyright",
                         "severity": SeverityLevel.LOW,
-                        "file": path,
                         "description": f"{len(file_info['emails'])} email(s) found.",
-                        "line": next(
-                            (e["start_line"] for e in file_info.get("emails", [])), None
-                        ),
                         "suggestion": "Ensure these do not leak personal data or violate compliance.",
+                        "line": [e["start_line"] for e in file_info.get("emails", [])],
                     }
                 )
 
             if file_info.get("urls"):
-                self.findings.append(
+                grouped[
+                    (
+                        path,
+                        "copyright",
+                        self.result_severity_mapping("urls"),
+                    )
+                ].append(
                     {
-                        "type": "copyright",
                         "severity": SeverityLevel.LOW,
-                        "file": path,
                         "description": f"{len(file_info['urls'])} URL(s) found.",
                         "suggestion": "Verify these URLs do not point to prohibited or unverified sources.",
-                        "line": next(
-                            (e["start_line"] for e in file_info.get("urls", [])),
-                            None,
-                        ),
+                        "line": [e["start_line"] for e in file_info.get("urls", [])],
                     }
                 )
+        for (path, ftype, severity), items in grouped.items():
+            clubbed = {
+                "description": [i["description"] for i in items],
+                "suggestion": [i["suggestion"] for i in items],
+                "lines": [
+                    (
+                        ", ".join(map(str, i.get("line")))
+                        if isinstance(i.get("line"), list)
+                        else str(i.get("line"))
+                    )
+                    for i in items
+                ],
+            }
+            self.findings.append(
+                {
+                    "type": ftype,
+                    "file": path,
+                    "severity": self.severity_mapping(severity),
+                    "clubbed": clubbed,
+                    "description": f"{len(items)} {ftype.replace('_', ' ')} issue(s) found in {os.path.basename(path)}.",
+                    "suggestion": "Review the clubbed details for remediation steps.",
+                }
+            )
 
     def process_semgrep_findings(self, json_path="semgrep_output.json"):
         """Parses Semgrep JSON output and appends structured findings."""
@@ -368,7 +440,6 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
         # Append findings with merged lines
         for (path, check_id), details in grouped_findings.items():
             lines_str = ", ".join(str(ln) for ln in sorted(set(details["lines"])))
-            line_number = min(details["lines"])
             total_violations = violation_counter[details["path"]]
             type_ = details["check_id"].split(".")[-1]
             severity = SEVERITY_MAP.get(type_, SeverityLevel.INFO)
@@ -381,14 +452,16 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
             else:
 
                 description = f"{title}: {details['message']}"
+            snippet = f"Line(s): {lines_str}"
             self.findings.append(
                 {
                     "type": "data_privacy",
                     "severity": severity,
                     "file": details["path"],
                     "rule": details["check_id"],
-                    "line": line_number,
+                    "line": "",
                     "description": (description),
+                    "code_snippet": snippet,
                     "category": details["category"],
                     "compliance": details["compliance"],
                     "suggestion": "Review this code for potential privacy/security issues.",
