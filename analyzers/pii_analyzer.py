@@ -64,6 +64,10 @@ class PIIAnalyzer(ComplianceAnalyzer):
         super().__init__("pii_phi", "1.0.0")
         self.compliance_frameworks = ["GDPR", "HIPAA", "CCPA", "PCI_DSS"]
         self._initialize_patterns()
+        self.quality_categories = [
+            "Personal Identity Information",
+            "Personal Health Information",
+        ]
 
     def get_supported_file_types(self) -> List[str]:
         """Return supported file types."""
@@ -72,6 +76,10 @@ class PIIAnalyzer(ComplianceAnalyzer):
     def get_compliance_frameworks(self) -> List[str]:
         """Get compliance frameworks this analyzer covers."""
         return self.compliance_frameworks
+    
+    def get_quality_categories(self) -> List[str]:
+        """Get quality categories this analyzer covers."""
+        return self.quality_categories
 
     def get_compliance_status(
         self, findings: List["UnifiedFinding"]

@@ -35,10 +35,13 @@ class InjectionAnalyzer(SecurityAnalyzer):
     def __init__(self):
         super().__init__("injection", "1.0.0")
         self.security_categories = [
-            "injection",
+            "sql_injection",
             "xss",
             "command_injection",
             "path_traversal",
+            "ldap_injection",
+            "code_injection",
+            "xpath_injection",
         ]
         self._initialize_injection_patterns()
 

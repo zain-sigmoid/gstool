@@ -1,3 +1,26 @@
 {
-    "chatgpt.openOnStartup": false
+  // Make Prettier the default for everything...
+  "editor.defaultFormatter": "ms-python.black-formatter",
+
+  // ...but explicitly use Black for Python.
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter"
+  },
+
+  // Belt & suspenders: tell Prettier to ignore Python.
+  "prettier.disableLanguages": ["python"],
+
+  // Avoid legacy formatter conflicts
+  "python.formatting.provider": "none",
+
+  // Ensure Black runs from your venv if present
+  "black-formatter.importStrategy": "useBundled",
+  "black-formatter.path": [
+    "/opt/anaconda3/envs/gstool/bin/black",
+    "black"
+  ],
+  "postman.settings.dotenv-detection-notification-visibility": false,
+  "[jsonc]": {
+    "editor.defaultFormatter": "vscode.json-language-features"
+  }
 }
