@@ -446,7 +446,29 @@ class ConsolidatedCodeReviewApp:
                     if hasattr(analyzer, "get_security_categories"):
                         categories = analyzer.get_security_categories()
                         if categories:
-                            st.write(f"**Categories:** {', '.join(categories)}")
+                            category_html = "".join(
+                                [
+                                    f"<span style='display:inline-block; background-color:#f0f2f6; color:#333; "
+                                    f"padding:4px 18px; margin:4px; border-radius:16px; font-size:14px; "
+                                    f"font-weight:500; border:1px solid #d0d7de; font-size:12px'>{cat}</span>"
+                                    for cat in categories
+                                ]
+                            )
+                        st.markdown(f"**Categories:**<br>{category_html}", unsafe_allow_html=True)
+                    if hasattr(analyzer, "get_quality_categories"):
+                        categories = analyzer.get_quality_categories()
+                        if categories:
+                            category_html = "".join(
+                                [
+                                    f"<span style='display:inline-block; background-color:#f0f2f6; color:#333; "
+                                    f"padding:4px 18px; margin:4px; border-radius:16px; font-size:14px; "
+                                    f"font-weight:500; border:1px solid #d0d7de; font-size:12px'>{cat}</span>"
+                                    for cat in categories
+                                ]
+                            )
+                        st.markdown(f"**Categories:**<br>{category_html}", unsafe_allow_html=True)
+                    
+                            # st.write(f"**Categories:** {', '.join(categories)}")
 
         with col2:
             st.markdown("## 📊 Quick Stats")
