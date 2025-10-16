@@ -507,6 +507,17 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             or "test" in filename
             or "/test" in file_path.lower()
         )
+    
+    def _get_object_mapping(self, symbol:str) ->str:
+        OBJECT_SYMBOLS = {
+            "missing-function-docstring":"Function",
+            "too-many-arguments":"Function",
+            "missing-class-docstring":"Class",
+            "unused-variable":"In",
+            "invalid-name" : "In"
+        }
+
+        return OBJECT_SYMBOLS.get(symbol, "In")
 
     async def _club_analysis_results(
         self, analysis_results: Dict[str, Any]
@@ -548,6 +559,11 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             "bad indentation": "bad-indentation",
         }
 
+        CLUB_SYMBOLS_ONE = {
+            "missing-module-docstring",
+            "missing-final-newline"
+        }
+
         # Keyed by (file_path, normalized_symbol)
         base_for_key: Dict[Tuple[str, str], Dict[str, Any]] = {}
         acc_for_key = defaultdict(lambda: {"lines": [], "messages": []})
@@ -578,8 +594,19 @@ class ReadabilityAnalyzer(QualityAnalyzer):
                 if isinstance(ln, int):
                     acc_for_key[key]["lines"].append(ln)
                 msg = issue.get("message")
-                if msg:
+                obj = issue.get("object")
+                if msg and obj:
+                    f_msg = f"{self._get_object_mapping(sym)} `{obj}` | {msg}"
+                    acc_for_key[key]["messages"].append(f_msg)
+                elif msg:
                     acc_for_key[key]["messages"].append(msg)
+            elif file_path and sym in CLUB_SYMBOLS_ONE:
+                key = (sym,"one")
+                if key not in base_for_key:
+                    base_for_key[key] = dict(issue)
+                ln = issue.get("line_number")
+                acc_for_key[key]["lines"].append(ln)
+                acc_for_key[key]["messages"].append(file_path)
             else:
                 # pass-through for non-clubbed or missing file_path
                 out.append(issue)
@@ -588,6 +615,12 @@ class ReadabilityAnalyzer(QualityAnalyzer):
         for key, base in base_for_key.items():
             merged = dict(base)  # keep original fields (details stays as-is)
             collected = acc_for_key[key]
+            if key[0] in CLUB_SYMBOLS_ONE:
+                merged["file_path"] = (
+                    merged["file_path"].split("/")[0]
+                    if "/" in merged["file_path"]
+                    else os.path.basename(merged["file_path"])
+                )
             merged["message"] = merged["title"]
             merged["clubbed"] = {
                 "lines": sorted(
@@ -597,6 +630,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             }
             merged["line_number"] = ""
             out.append(merged)
+                
 
         # --- Update summary ---
         new_total = len(out)
