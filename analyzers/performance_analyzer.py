@@ -497,7 +497,9 @@ class PerformanceAnalyzer(QualityAnalyzer):
 
         aggregated_findings = defaultdict(list)
         issue_suggestions = {
-            "inefficient_list_building": "Use list comprehension instead of appending to a list inside a loop for better performance and cleaner code.",
+            "inefficient_list_building": "Use list comprehension instead of appending to a list inside a loop for better performance and cleaner code. "
+            "For example:\n "
+            "result = [item for item in data if condition(item)]",
             "inefficient_membership_check": "Convert the list to a set before performing membership checks to improve lookup performance.",
             "inefficient_list_concat": "Use `.extend()` or collect sublists and concatenate once, instead of using `+=` in a loop.",
             "inefficient_sorting": "Avoid sorting inside a loop; sort once outside the loop or use `heapq` for top-N items.",
