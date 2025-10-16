@@ -5,15 +5,14 @@ Integrates Bandit, MyPy, Semgrep, and custom dictionary access pattern checking.
 """
 
 import os
-import subprocess
 import json
 import re
 import tempfile
 import logging
 import traceback
+import asyncio
 import ast
 from typing import List, Dict, Any, Optional, Tuple
-import asyncio
 from collections import defaultdict, Counter
 from utils.df_handling import collect_pandas_info, is_dataframe_expr
 from core.interfaces import QualityAnalyzer
@@ -157,7 +156,8 @@ class RobustnessAnalyzer(QualityAnalyzer):
 
             if analyzer_config.get("enable_dict_check", True):
                 dict_findings = await self._run_dict_access_check(python_files)
-                findings.extend(dict_findings)
+                clubbed_dict_findings = self.club_dict_access_findings(dict_findings)
+                findings.extend(clubbed_dict_findings)
 
             execution_time = asyncio.get_event_loop().time() - start_time
 
@@ -213,6 +213,59 @@ class RobustnessAnalyzer(QualityAnalyzer):
             return AnalysisResult(
                 findings=[], metrics=metrics, metadata={"error": str(e)}
             )
+        
+    def club_dict_access_findings(self, unified_findings):
+        """Group 'dict-access-without-get' findings by file into one unified entry."""
+
+        grouped = defaultdict(list)
+        findings = []
+
+        # 1️⃣ Group by file path
+        for f in unified_findings:
+            grouped[(f.location.file_path, f.title)].append(f)
+        
+        # rprint(grouped)
+
+        # 2️⃣ Create one combined finding per file
+        for (file_path, title), group in grouped.items():
+            clubbed = {"prefix": [], "suffix_count": [], "lines": []}
+
+            for item in group:
+                # Extract prefix (like data_trimmed[*])
+                prefix_line = next((d for d in item.details if "prefix:" in d.lower()), None)
+                prefix = re.search(r"`(.+?)`", prefix_line).group(1) if prefix_line else "unknown"
+
+                # Extract suffix count
+                suffix_line = next((d for d in item.details if "suffix" in d.lower()), "")
+                match_suffix = re.search(r"Found\s+(\d+)", suffix_line)
+                suffix_count = int(match_suffix.group(1)) if match_suffix else 0
+
+                # Extract all line numbers from code_snippet and join them
+                line_matches = re.findall(r"-\s*(\d+)", item.code_snippet or "")
+                line_str = ", ".join(sorted(set(line_matches), key=int))
+
+                # Append one row per prefix
+                clubbed["prefix"].append(prefix)
+                clubbed["suffix_count"].append(suffix_count)
+                clubbed["lines"].append(line_str)
+
+            # 3️⃣ Create one unified finding for this file
+            finding = UnifiedFinding(
+                title=title,
+                description=group[0].description,
+                clubbed=clubbed,
+                category=group[0].category,
+                severity=group[0].severity,
+                confidence_score=0.7,
+                location=CodeLocation(file_path=file_path),
+                rule_id=group[0].rule_id,
+                remediation_guidance=group[0].remediation_guidance,
+                remediation_complexity=group[0].remediation_complexity,
+                source_analyzer=group[0].source_analyzer,
+                tags=group[0].tags,
+            )
+            findings.append(finding)
+        return findings
 
     def _find_python_files(self, path: str) -> List[str]:
         """Find all Python files under the given path, excluding virtual environments."""
@@ -779,7 +832,7 @@ rules:
             remediation_guidance=self._get_bandit_remediation(test_id),
             remediation_complexity=ComplexityLevel.MODERATE,
             source_analyzer=self.name,
-            extra_data={"bandit_issue": issue},
+            extra_data={"bandit_issue": issue, "priority_score":0.7},
         )
 
     def _create_mypy_finding(
@@ -811,14 +864,13 @@ rules:
             confidence_score=0.9,  # MyPy is quite reliable
             location=CodeLocation(
                 file_path="/".join(filepath.split("/")[-2:]),
-                line_number=line_num,
             ),
             rule_id=error_code,
             remediation_guidance=self._get_mypy_remediation(error_code),
             remediation_complexity=self._get_mypy_complexity(error_code),
             source_analyzer=self.name,
             tags={"type_safety", "static_analysis"},
-            extra_data={"mypy_level": level, "error_code": error_code},
+            extra_data={"mypy_level": level, "error_code": error_code, "priority_score":0.7},
         )
 
     def _create_semgrep_finding(
@@ -843,7 +895,7 @@ rules:
             remediation_complexity=ComplexityLevel.SIMPLE,
             source_analyzer=self.name,
             tags={"error_handling", "file_operations"},
-            extra_data={"semgrep_result": result_item},
+            extra_data={"semgrep_result": result_item,"priority_score":0.7},
         )
 
     def _create_dict_access_finding(
@@ -889,7 +941,7 @@ rules:
             remediation_complexity=ComplexityLevel.SIMPLE,
             source_analyzer=self.name,
             tags={"safe_patterns", "error_prevention"},
-            extra_data={"line_content": line_content.strip()},
+            extra_data={"line_content": line_content.strip(), "priority_score":0.7},
         )
 
     def _create_generic_bandit_finding(
