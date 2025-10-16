@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 # Import core components
 from core.engine import UnifiedAnalysisEngine
+from utils.severity_mapping import Severity
 from core.models import (
     AnalysisConfiguration,
     ConsolidatedReport,
@@ -208,14 +209,10 @@ class ConsolidatedCodeReviewApp:
                 with zipfile.ZipFile(io.BytesIO(target_path.read())) as z:
                     Extract.safe_extract_zip(z, dest)
                 project_root = Extract.find_best_project_root(dest, CODE_EXTS)
-                st.success(f"Unzipped Successfully")
+                files_count = Extract.count_code_files(project_root, CODE_EXTS)
+                st.success(f"Unzipped Successfully, Found {files_count} Files")
                 st.session_state.resolved_target_path = project_root
         else:
-            # target_path = st.text_input(
-            #     "File Path:",
-            #     placeholder="/path/to/your/file.py",
-            #     help="Enter the full path to the file to analyze",
-            # )
             uploaded = st.file_uploader("Upload your python file", type=["py"])
             if uploaded:
                 dest = Extract.resolve_dest_folder(arg="file")
@@ -272,8 +269,8 @@ class ConsolidatedCodeReviewApp:
             timeout_seconds = st.slider(
                 "Timeout (seconds):",
                 min_value=30,
-                max_value=600,
-                value=300,
+                max_value=900,
+                value=450,
                 help="Maximum time to wait for analysis completion",
             )
 
@@ -336,7 +333,7 @@ class ConsolidatedCodeReviewApp:
             st.session_state.show_glossary = True
             st.rerun()
 
-        st.caption(f"🔖 Version:1.6.1")
+        st.caption(f"🔖 Version:1.7")
 
     def _run_analysis(
         self,
@@ -389,27 +386,39 @@ class ConsolidatedCodeReviewApp:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-            report = loop.run_until_complete(
-                self.engine.analyze(config, progress_cb=progress_cb)
-            )
+            # report = loop.run_until_complete(
+            #     self.engine.analyze(config, progress_cb=progress_cb)
+            # )
+            try:
+                report = loop.run_until_complete(self.engine.analyze(config, progress_cb=progress_cb))
+                # Update session state
+                st.session_state.current_report = report
+                st.session_state.analysis_history.append(report)
+                st.session_state.analysis_running = False
 
-            # Update session state
-            st.session_state.current_report = report
-            st.session_state.analysis_history.append(report)
-            st.session_state.analysis_running = False
+                # Clear progress indicator
+                progress_placeholder.empty()
+                if getattr(report, "timed_out", False):
+                    st.warning(
+                        f"⏱️ Timeout reached after {config.timeout_seconds}s. "
+                        "Partial results are displayed below."
+                    )
+                else:
+                    st.success(f"✅ Analysis completed! Found {len(report.findings)} findings.")
 
-            # Clear progress indicator
-            progress_placeholder.empty()
+                # Success message
+                # st.success(f"✅ Analysis completed! Found {len(report.findings)} findings.")
+                st.rerun()
 
-            # Success message
-            st.success(f"✅ Analysis completed! Found {len(report.findings)} findings.")
-            st.rerun()
+            except asyncio.CancelledError:
+                # Make sure the UI shows *something*
+                st.error(f"Analysis exited due to timeout ({config.timeout_seconds}s).")
 
         except Exception as e:
             logger.error(f"Analysis failed: {str(e)}")
             st.session_state.analysis_running = False
             progress_placeholder.empty()
-            st.error(f"❌ Analysis failed: {str(e)}")
+            st.error(f"❌ Analysis failed")
 
     def _render_welcome_screen(self):
         """Render the welcome screen when no analysis has been run."""
@@ -606,7 +615,7 @@ class ConsolidatedCodeReviewApp:
         with col3:
             options = ["All"] + sorted(titles)
             finding_type_filter = st.selectbox(
-                "Filter by Type:",
+                f"Filter by Type (Total Filters **{len(options)}**)",
                 options,  # titles is already set of strings
                 index=0,
                 # default=sorted(titles),
@@ -619,7 +628,7 @@ class ConsolidatedCodeReviewApp:
                 )  # matches file.py or dir/file.py only
             ]
             options_two = ["All"] + sorted(valid_paths)
-            finding_file_filter = st.selectbox("Filter by Files:", options_two, index=0)
+            finding_file_filter = st.selectbox(f"Filter by Files (Total Unique Files **{len(valid_paths)}**)", options_two, index=0)
 
         # Apply filters
         filtered_findings = self._apply_finding_filters(
@@ -1208,7 +1217,8 @@ class ConsolidatedCodeReviewApp:
                             "Encryption keys",
                         ],
                         "tools_used": "Gitleaks",
-                        "severity_focus": "Critical and High severity findings",
+                        "severity_focus": "Critical, High and Medium severity findings",
+                        "df":Severity.hardcoded_secret()
                     },
                     "pii_phi": {
                         "description": "Identifies Personally Identifiable Information (PII) and Protected Health Information (PHI) to ensure compliance with data protection regulations.",
@@ -1222,7 +1232,8 @@ class ConsolidatedCodeReviewApp:
                             "IP addresses",
                         ],
                         "compliance": "GDPR, HIPAA, CCPA, PCI DSS",
-                        "severity_focus": "High and Medium severity findings",
+                        "severity_focus": "Critical, High and Medium severity findings",
+                        "df":Severity.pii_phi()
                     },
                     "readability": {
                         "description": "Evaluates code readability, style, and maintainability using Pylint and custom checks.",
@@ -1234,7 +1245,8 @@ class ConsolidatedCodeReviewApp:
                             "Style guide violations",
                         ],
                         "tools_used": "Pylint, custom patterns",
-                        "severity_focus": "Medium and Low severity findings",
+                        "severity_focus": "Medium, Low and Info severity findings",
+                        "df":Severity.readability()
                     },
                     "robustness": {
                         "description": "Analyzes code robustness, error handling, and defensive programming practices.",
@@ -1245,7 +1257,8 @@ class ConsolidatedCodeReviewApp:
                             "Input validation problems",
                             "Exception handling gaps",
                         ],
-                        "severity_focus": "High and Medium severity findings",
+                        "severity_focus": "High, Medium and Low severity findings",
+                        "df": Severity.robustness()
                     },
                     "testability": {
                         "description": "Evaluates code testability and suggests improvements for better testing coverage.",
@@ -1257,6 +1270,7 @@ class ConsolidatedCodeReviewApp:
                             "Test infrastructure issues",
                         ],
                         "severity_focus": "Medium and Low severity findings",
+                        "df":Severity.testability()
                     },
                     "observability": {
                         "description": "Analyzes logging, monitoring, and observability practices in your code.",
@@ -1267,7 +1281,8 @@ class ConsolidatedCodeReviewApp:
                             "Debug information issues",
                             "Observability best practices",
                         ],
-                        "severity_focus": "Medium and Low severity findings",
+                        "severity_focus": "High, Medium, Low and Info severity findings",
+                        "df":Severity.observability()
                     },
                     "injection": {
                         "description": "Detects potential injection vulnerabilities and unsafe input handling.",
@@ -1279,7 +1294,8 @@ class ConsolidatedCodeReviewApp:
                             "Unsafe input handling",
                         ],
                         "tools_used": "Custom pattern matching",
-                        "severity_focus": "Critical and High severity findings",
+                        "severity_focus": "Critical, High and Medium severity findings",
+                        "df":Severity.injection()
                     },
                     "maintainability": {
                         "description": "Assesses code maintainability using metrics like Cyclomatic Complexity and Maintainability Index.",
@@ -1289,8 +1305,9 @@ class ConsolidatedCodeReviewApp:
                             "Function duplication",
                             "Branches in the code",
                         ],
-                        "severity_focus": "Medium and Low severity findings",
+                        "severity_focus": "High, Medium and Info severity findings",
                         "image": ["assets/crr.png", "assets/ccinfo.png"],
+                        "df":Severity.maintainability()
                     },
                     "performance": {
                         "description": "Identifies performance bottlenecks and inefficient code patterns.",
@@ -1300,7 +1317,8 @@ class ConsolidatedCodeReviewApp:
                             "Naive Sort patterns",
                             "Inefficient Data Structures",
                         ],
-                        "severity_focus": "High and Medium severity findings",
+                        "severity_focus": "High, Medium and Low severity findings",
+                        "df":Severity.performance()
                     },
                     "compliance": {
                         "description": "Checks for compliance with various regulatory frameworks and standards.",
@@ -1310,7 +1328,8 @@ class ConsolidatedCodeReviewApp:
                             "Data protection compliance",
                         ],
                         "tools_used": "Scancode, Semgrep",
-                        "severity_focus": "High severity findings",
+                        "severity_focus": "Medium, Low and Info severity findings",
+                        "df":Severity.compliance()
                     },
                 }
 
@@ -1331,18 +1350,38 @@ class ConsolidatedCodeReviewApp:
 
                     if "image" in desc:
                         st.markdown(
-                            f"**Image** : Complexity Risk Ranking according to percent of Line of code in functions marked by Cyclometic Complexity and Cyclomatic complexity scores"
+                            f"**Image** : Complexity Risk Ranking according to percent of Line of code in functions marked by Cyclomatic Complexity and Cyclomatic complexity scores"
                         )
                         images = desc.get("image")
-                        if isinstance(images, list):  # multiple images
-                            for img in images:
-                                st.image(img)
+                        if isinstance(images, list) and len(images) > 0:
+                            # Create columns dynamically based on number of images
+                            cols = st.columns(len(images))
+                            
+                            for i, img in enumerate(images):
+                                with cols[i]:
+                                    st.image(img, caption=f"Figure {i+1}", use_container_width=True, width=250)
                         else:  # single image
                             st.image(images)
 
                     st.markdown(
                         f"**Severity focus:** {desc.get('severity_focus', 'All levels')}"
                     )
+                    # st.dataframe(desc.get('df'), use_container_width=True, row_height=50)
+                    df = pd.DataFrame(desc.get('df'))
+                    # Convert to HTML and wrap long text using CSS
+                    st.markdown("""
+                    <style>
+                    .wrap-text-table td {
+                        white-space: normal !important;
+                        word-wrap: break-word !important;
+                        text-align: left !important;
+                        vertical-align: top !important;
+                    }
+                    </style>
+                    """, unsafe_allow_html=True)
+
+                    # Render as HTML table with wrapping
+                    st.markdown(df.to_html(classes="wrap-text-table", index=False, escape=False), unsafe_allow_html=True)
 
     def _render_common_questions(self):
         """Render common questions FAQ section."""
