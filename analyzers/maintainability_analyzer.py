@@ -9,6 +9,7 @@ import json
 import asyncio
 import logging
 import traceback
+import hashlib
 from typing import List, Dict, Any
 from collections import defaultdict, Counter
 from core.tool_runner import ToolRunner
@@ -580,7 +581,8 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                 continue
 
     def _analyze_function_duplication(self, python_files):
-        function_hashes = defaultdict(list)
+        # function_map = defaultdict(lambda: {"files": set(), "names": set(), "lines": [], "identifiers": set()})
+        function_map = defaultdict(lambda: {"files": set(), "lines": [], "identifiers": set()})
 
         for file_path in python_files:
             try:
@@ -591,37 +593,37 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                 for node in ast.walk(tree):
                     if isinstance(node, ast.FunctionDef):
                         # Create a simple hash of the function structure
-                        func_hash = self._hash_function_structure(node)
-                        function_hashes[func_hash].append(
-                            (file_path, node.name, node.lineno)
-                        )
-
+                        if len(node.body) == 1 and isinstance(node.body[0], ast.Return):
+                            ret = node.body[0].value
+                            if isinstance(ret, (ast.Attribute, ast.Constant)):
+                                continue
+                        func_hash, ids = self._hash_function_structure(node)
+                        key = (node.name, func_hash)  # unique per function name + structure
+                        entry = function_map[key]
+                        entry["files"].add(os.path.basename(file_path))
+                        entry["lines"].append(node.lineno)
+                        entry["identifiers"].update(ids)
+    
             except Exception:
                 continue
 
+
         # Find duplicates (reported once per function name)
-        for func_hash, occurrences in function_hashes.items():
-            if len(occurrences) > 1:
-                # Extract common function name (assuming it's the same across duplicates)
-                _, func_name, _ = occurrences[0]
+        for (func_name, func_hash), meta in function_map.items():
+            if len(meta["files"]) > 1:
                 file_locations = [
-                    f"{file.split('/')[-1]}:{line}" for file, _, line in occurrences
+                    f"{file}:{line}"
+                    for file, line in zip(sorted(meta["files"]), sorted(meta["lines"]))
                 ]
-                file_list = sorted({file.split("/")[-1] for file, _, _ in occurrences})
-                self.findings.append(
-                    {
-                        "type": "function_duplication",
-                        "severity": SeverityLevel.MEDIUM,
-                        "function": func_name,
-                        "description": f"Function `{func_name}` appears at multiple locations with similar structure.",
-                        "file": ", ".join(file_locations),
-                        "locations": file_locations,
-                        "suggestion": (
-                            f"Consider moving `{func_name}` into a shared module or utility file "
-                            "to reduce duplication and improve maintainability."
-                        ),
-                    }
-                )
+                self.findings.append({
+                    "type": "function_duplication",
+                    "severity": SeverityLevel.MEDIUM,
+                    "function": func_name,
+                    "description": f"Function `{func_name}` appears in multiple files with identical or near-identical structure.",
+                    "file": ", ".join(file_locations),
+                    "locations": file_locations,
+                    "suggestion": "Consider refactoring shared logic into a common module.",
+                })
 
     async def _analyze_code_duplication(self, path):
         """Analyze code duplication."""
@@ -680,13 +682,36 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
         """Create a simple hash of function structure for duplication detection."""
         # This is a simplified approach - count different node types
         node_counts = defaultdict(int)
+        identifiers = set()
 
         for child in ast.walk(node):
             node_counts[type(child).__name__] += 1
+            if isinstance(child, ast.Name):
+                identifiers.add(child.id)
+            elif isinstance(child, ast.Attribute):
+                identifiers.add(child.attr)
+            elif isinstance(child, ast.Constant) and isinstance(child.value, str):
+                identifiers.add(child.value)
 
-        # Create a simple hash from node counts
-        hash_string = "".join(f"{k}:{v}" for k, v in sorted(node_counts.items()))
-        return hash(hash_string)
+        # Build normalized structural signature string
+        structure_sig = "|".join(f"{k}:{v}" for k, v in sorted(node_counts.items()))
+        id_sig = ",".join(sorted(identifiers))
+        combined = structure_sig + "|" + id_sig
+
+        # Generate a reproducible hash
+        func_hash = hashlib.sha1(combined.encode()).hexdigest()
+
+        return func_hash, identifiers
+
+        #     if isinstance(child, ast.Attribute):
+        #         identifiers.append(child.attr)
+        #     elif isinstance(child, ast.Name):
+        #         identifiers.append(child.id)
+
+        # # Create a simple hash from node counts
+        # hash_string = "".join(f"{k}:{v}" for k, v in sorted(node_counts.items()))
+        # id_part = ",".join(sorted(set(identifiers)))
+        # return hash(hash_string + id_part)
 
     def _create_empty_result(self) -> AnalysisResult:
         """Create an empty analysis result."""
