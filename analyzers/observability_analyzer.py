@@ -412,8 +412,8 @@ class ObservabilityAnalyzer(QualityAnalyzer):
                     ]
                     description = f"Critical functions without logging: {len(critical_functions_without_logging)} "
                     clubbed = {
-                        "line_numbers": lines,
-                        "function_names": names,
+                        "lines": lines,
+                        "function": names,
                     }
                     finding = UnifiedFinding(
                         title="Critical Functions Missing Logging",
