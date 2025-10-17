@@ -341,7 +341,7 @@ class TestabilityAnalyzer(QualityAnalyzer):
                 description=f"Test coverage is {coverage_percentage:.1f}%, below recommended {minimum_threshold}%",
                 category=FindingCategory.TESTABILITY,
                 severity=severity,
-                confidence_score=0.9,
+                confidence_score=0.7,
                 location=CodeLocation(
                     file_path="/".join(str(target_path).split("/")[-2:])
                 ),
@@ -388,7 +388,7 @@ class TestabilityAnalyzer(QualityAnalyzer):
                 description="No test files found in the project",
                 category=FindingCategory.TESTABILITY,
                 severity=SeverityLevel.HIGH,
-                confidence_score=0.95,
+                confidence_score=0.7,
                 location=CodeLocation(
                     file_path="/".join(str(target_path).split("/")[-2:])
                 ),
@@ -428,7 +428,7 @@ class TestabilityAnalyzer(QualityAnalyzer):
                             if len(untested_funcs) <= 2
                             else SeverityLevel.MEDIUM
                         ),
-                        confidence_score=0.8,
+                        confidence_score=0.7,
                         location=CodeLocation(
                             file_path="/".join(str(file_path).split("/")[-2:])
                         ),
