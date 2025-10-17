@@ -428,21 +428,37 @@ class ResultAggregator:
 
     def _sort_by_priority(self, findings: List[UnifiedFinding]) -> List[UnifiedFinding]:
         """Sort findings by priority (highest first)."""
-        return sorted(
-            findings,
-            key=lambda f: (
-                f.extra_data.get("priority_score", 0),
-                f.confidence_score,
-                [
-                    SeverityLevel.CRITICAL,
-                    SeverityLevel.HIGH,
-                    SeverityLevel.MEDIUM,
-                    SeverityLevel.LOW,
-                    SeverityLevel.INFO,
-                ].index(f.severity),
-            ),
-            reverse=True,
-        )
+        severity_weight = {
+            SeverityLevel.CRITICAL: 100,
+            SeverityLevel.HIGH: 75,
+            SeverityLevel.MEDIUM: 50,
+            SeverityLevel.LOW: 25,
+            SeverityLevel.INFO: 10,
+        }
+
+        def compute_score(f: UnifiedFinding):
+            priority = f.extra_data.get("priority_score", 0)
+            confidence = f.confidence_score or 0
+            severity_score = severity_weight.get(f.severity, 0)
+            # final weighted score
+            return (severity_score * 1.5) + (priority * 1.2) + (confidence * 100)
+
+        # return sorted(
+        #     findings,
+        #     key=lambda f: (
+        #         f.extra_data.get("priority_score", 0),
+        #         f.confidence_score,
+        #         [
+        #             SeverityLevel.CRITICAL,
+        #             SeverityLevel.HIGH,
+        #             SeverityLevel.MEDIUM,
+        #             SeverityLevel.LOW,
+        #             SeverityLevel.INFO,
+        #         ].index(f.severity),
+        #     ),
+        #     reverse=True,
+        # )
+        return sorted(findings, key=compute_score, reverse=True)
 
     def _get_severity_breakdown(self, findings: List[UnifiedFinding]) -> Dict[str, int]:
         """Get breakdown of findings by severity."""
