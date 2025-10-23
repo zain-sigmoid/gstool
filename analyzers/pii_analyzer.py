@@ -76,7 +76,7 @@ class PIIAnalyzer(ComplianceAnalyzer):
     def get_compliance_frameworks(self) -> List[str]:
         """Get compliance frameworks this analyzer covers."""
         return self.compliance_frameworks
-    
+
     def get_quality_categories(self) -> List[str]:
         """Get quality categories this analyzer covers."""
         return self.quality_categories
@@ -216,7 +216,14 @@ class PIIAnalyzer(ComplianceAnalyzer):
             )
 
             # Find Python files
-            python_files = self._find_python_files(config.target_path)
+            # python_files = self._find_python_files(config.target_path)
+            if getattr(config, "files", None):
+                # Use the explicit file list passed from CLI
+                python_files = config.files
+            else:
+                # Fallback: discover files automatically
+                python_files = self._find_python_files(config.target_path)
+
             if not python_files:
                 logger.warning(
                     f"No Python files found in {os.path.basename(config.target_path)}"
