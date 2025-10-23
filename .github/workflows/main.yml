@@ -5,9 +5,6 @@ on:
     branches: [ cli ]
   workflow_dispatch:
 
-permissions:
-  contents: read   # GITHUB_TOKEN only needs read for source repo
-
 jobs:
   mirror:
     runs-on: ubuntu-latest
@@ -19,43 +16,42 @@ jobs:
           fetch-depth: 0
 
       - name: Prepare mirror content
-        shell: bash
         run: |
-          keep=(cli.py pyproject.toml MANIFEST.in README.md LICENSE analyzers core utils)
-          shopt -s dotglob nullglob
-          for f in *; do
+          keep=(.git .github cli.py pyproject.toml MANIFEST.in README.md LICENSE analyzers core utils)
+          shopt -s extglob dotglob
+          for f in * .*; do
+            [ "$f" = "." ] || [ "$f" = ".." ] && continue
+            [ "$f" = ".git" ] && continue
             case " ${keep[*]} " in
               *" ${f} "*) : ;;   # keep
               *) rm -rf -- "$f" || true ;;
             esac
           done
 
-      # Load SSH key correctly (handles formatting & agent setup)
-      - name: Start ssh-agent and add deploy key
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SIGSCAN_MIRROR_DEPLOY_KEY }}
-
-      - name: Trust GitHub host keys
+      - name: Configure SSH
+        env:
+          DEST_SSH_KEY: ${{ secrets.SIGSCAN_MIRROR_DEPLOY_KEY }}
         run: |
-          mkdir -p ~/.ssh
+          install -m 700 -d ~/.ssh
+          printf "%s" "$DEST_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H github.com >> ~/.ssh/known_hosts
 
-      - name: Configure git author
+      # Optional: make config global here OR delete this step
+      - name: Configure git (global)
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@users.noreply.github.com"
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@users.noreply.github.com"
 
       - name: Push to sigscan-cli@main
-        env:
-          DEST_REPO: git@github.com:YOUR_ORG/sigscan-cli.git
         run: |
           git init mirror
           rsync -a --delete --exclude .git ./ mirror/
           cd mirror
-          git init
-          git remote add dest "$DEST_REPO"
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
           git add -A
           git commit -m "Mirror from gstool@cli: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" || true
           git branch -M main
+          git remote add dest git@github.com:zain-sigmoid/sigscan-cli.git
           git push -f dest main
