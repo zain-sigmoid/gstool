@@ -48,8 +48,9 @@ radon
 # License scanning
 scancode-toolkit==32.0.2
 
-# Terminal color
+# Terminal
 termcolor
+tqdm>=4.66.0
 
 #reading env files
 dotenv

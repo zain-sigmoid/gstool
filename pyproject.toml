@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sigscan"
+version = "0.1.0"
+description = "Signature scanning/analysis CLI"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+authors = [{ name = "Sigmoid Analytics", email = "zainmohd@sigmoidanalytics.com" }]
+# Add runtime deps here if any, e.g. pyyaml if you load YAML configs:
+dependencies = [
+    "pyyaml>=6.0.1",
+    "bandit>=1.8.6",
+    "semgrep>=1.28.1",
+    "mypy>=1.7.0",
+    "pylint>=3.0.0",
+    "pandas>=2.0.0",
+    "numpy>=2.2.6",
+    "pytest>=7.4.0",
+    "click>=8.1.0",
+    "rich>=13.5.0",
+    "pathspec>=0.11.0",
+    "flake8>=6.0.0",
+    "isort>=5.12.0",
+    "scancode-toolkit==32.0.2",
+    ""tqdm>=4.66.0",
+    "pip-audit",
+    "pip-licenses",
+    "radon",
+    "termcolor"
+]
+
+[project.scripts]
+# This tells pip to create a `sigscan` command that runs cli.main()
+sigscan = "cli:main"
+
+[tool.setuptools]
+# Explicitly list your packages to avoid auto-discovery errors
+packages = ["analyzers", "core", "utils"]
+
+# Also install the single-file top-level module cli.py
+py-modules = ["cli"]
+
+[tool.setuptools.package-data]
+# Include data files if your code reads them at runtime.
+# Adjust globs as needed or remove if not required.
+analyzers = ["**/*.json", "**/*.yaml", "**/*.yml", "**/*.txt"]
+core       = ["**/*.json", "**/*.yaml", "**/*.yml", "**/*.txt"]
+utils      = ["**/*.json", "**/*.yaml", "**/*.yml", "**/*.txt"]
+

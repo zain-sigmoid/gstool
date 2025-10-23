@@ -1,0 +1,2 @@
+[console_scripts]
+sigscan = cli:main

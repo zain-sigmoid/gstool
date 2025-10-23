@@ -1,0 +1,14 @@
+include README.md
+include LICENSE
+include requirements.txt
+
+# Include any additional non-Python data files that analyzers / utils need
+recursive-include utils *.toml *.yml *.yaml *.json *.txt
+recursive-include analyzers *.json *.yaml *.yml *.toml *.txt
+recursive-include core *.json *.yaml *.yml *.toml *.txt
+
+# (Optional) if project_run also needs data files
+recursive-include project_run *.json *.yaml *.yml *.toml *.txt
+
+# Exclude unwanted cache or system files
+global-exclude __pycache__ *.py[cod] .DS_Store
