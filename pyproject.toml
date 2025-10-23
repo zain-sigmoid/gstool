@@ -14,7 +14,7 @@ authors = [{ name = "Sigmoid Analytics", email = "zainmohd@sigmoidanalytics.com"
 dependencies = [
     "pyyaml>=6.0.1",
     "bandit>=1.8.6",
-    "semgrep>=1.28.1",
+    "semgrep==1.128.1",
     "mypy>=1.7.0",
     "pylint>=3.0.0",
     "pandas>=2.0.0",
@@ -26,11 +26,11 @@ dependencies = [
     "flake8>=6.0.0",
     "isort>=5.12.0",
     "scancode-toolkit==32.0.2",
-    ""tqdm>=4.66.0",
+    "tqdm>=4.66.0",
     "pip-audit",
     "pip-licenses",
     "radon",
-    "termcolor"
+    "termcolor",
 ]
 
 [project.scripts]

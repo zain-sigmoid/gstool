@@ -1015,9 +1015,37 @@ class ConsolidatedCodeReviewApp:
                 return str(value)
             return value
 
-        json_payload = _json_ready(export_payload)
+        def _json_default(o):
+            """Fallback converter for non-serializable types."""
+            import datetime, pathlib, enum, dataclasses
 
-        json_bytes = json.dumps(json_payload, indent=2)
+            if isinstance(o, datetime.datetime):
+                return o.isoformat()
+            if isinstance(o, datetime.date):
+                return o.isoformat()
+            if isinstance(o, (pathlib.Path,)):
+                return str(o)
+            if isinstance(o, (set, frozenset)):
+                return list(o)
+            if isinstance(o, enum.Enum):
+                return o.value
+            if dataclasses.is_dataclass(o):
+                return dataclasses.asdict(o)
+
+            # Try model_dump, to_dict, dict, json (Pydantic, etc.)
+            for attr in ("to_dict", "dict", "model_dump", "json"):
+                if hasattr(o, attr) and callable(getattr(o, attr)):
+                    try:
+                        v = getattr(o, attr)()
+                        if isinstance(v, str):
+                            return json.loads(v)
+                        return v
+                    except Exception:
+                        pass
+
+            return str(o)
+
+        report_bytes = json.dumps(report, default=_json_default)
 
         def _as_str_path(p):
             # convert Path/str/None -> str
@@ -1101,13 +1129,13 @@ class ConsolidatedCodeReviewApp:
         with col_json:
             st.download_button(
                 "📄 Download JSON",
-                json_bytes,
+                report_bytes,
                 file_name=f"{base_filename}.json",
                 mime="application/json",
             )
             with st.expander("Preview JSON"):
                 try:
-                    st.json(findings_payload)
+                    st.json(report_bytes)
                 except Exception as e:
                     logger.error(f"Error in JSON Preview: {e}")
                     st.write("Unable to Preview")

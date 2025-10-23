@@ -1,3 +1,4 @@
+LICENSE
 README.md
 cli.py
 pyproject.toml
@@ -20,17 +21,13 @@ core/interfaces.py
 core/models.py
 core/tool_runner.py
 core/transformers.py
-project_run/__init__.py
-project_run/main_code.py
-project_run/requirements.txt
-project_run/test_main.py
 project_run/RGM_econ_pyfiles/requirements (1).txt
 sigscan.egg-info/PKG-INFO
 sigscan.egg-info/SOURCES.txt
 sigscan.egg-info/dependency_links.txt
 sigscan.egg-info/entry_points.txt
+sigscan.egg-info/requires.txt
 sigscan.egg-info/top_level.txt
-user_project/__init__.py
 utils/__init__.py
 utils/analyze.py
 utils/df_handling.py
