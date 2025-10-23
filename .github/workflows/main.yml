@@ -14,19 +14,6 @@ jobs:
           ref: cli
           fetch-depth: 0
           
-      - name: Prepare mirror content
-        run: |
-          keep=(cli.py pyproject.toml MANIFEST.in README.md LICENSE analyzers core utils)
-          shopt -s extglob
-          for f in * .[^.]*; do
-            # Skip .git directory
-            [[ "$f" == ".git" ]] && continue
-            case " ${keep[*]} " in
-              *" ${f} "*) : ;;   # keep
-              *) rm -rf "$f" || true ;;
-            esac
-          done
-          
       - name: Configure git
         run: |
           git config user.name "github-actions"
