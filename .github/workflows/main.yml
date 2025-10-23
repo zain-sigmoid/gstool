@@ -46,9 +46,10 @@ jobs:
           git init mirror
           rsync -a --delete --exclude .git ./ mirror/
           cd mirror
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
           git add -A
           git commit -m "Mirror from gstool@cli: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" || true
-
           git branch -M main
-          git remote add dest git@github.com:zain-sigmoid/sigscan-cli.git
+          git remote add dest git@github.com:YOUR_ORG/sigscan-cli.git
           git push -f dest main
