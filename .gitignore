@@ -9,3 +9,5 @@ semgrep_output.json
 user_project/
 project_run/RGM_econ_pyfiles/
 project_run/RGM_econ_pyfiles.zip
+setup_phase1.py
+out.json

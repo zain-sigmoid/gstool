@@ -88,7 +88,14 @@ class PerformanceAnalyzer(QualityAnalyzer):
         self.findings = []
         error_count = 0
         start_time = asyncio.get_event_loop().time()
-        python_files = self._find_python_files(config.target_path)
+        # python_files = self._find_python_files(config.target_path)
+        if getattr(config, "files", None):
+            # Use the explicit file list passed from CLI
+            python_files = config.files
+        else:
+            # Fallback: discover files automatically
+            python_files = self._find_python_files(config.target_path)
+
         if not python_files:
             logger.warning(
                 f"No Python files found in {os.path.basename(config.target_path)}"
@@ -133,7 +140,7 @@ class PerformanceAnalyzer(QualityAnalyzer):
                 description=finding.get("description", ""),
                 clubbed=finding.get("clubbed", None),
                 details=finding.get("details", None),
-                confidence_score=0.8,
+                confidence_score=0.75,
                 location=CodeLocation(
                     file_path="/".join(finding.get("file", "").split("/")[-2:]),
                     line_number=finding.get("line", 0),
@@ -199,7 +206,7 @@ class PerformanceAnalyzer(QualityAnalyzer):
 
         if function:
             clubbed = {
-                "Functions": function,
+                "function": function,
                 "Time Complexities": time,
                 "Space Complexities": space,
             }
@@ -216,7 +223,7 @@ class PerformanceAnalyzer(QualityAnalyzer):
             )
 
         if info_count > 0:
-            clubbed = {"Functions": healthy_functions}
+            clubbed = {"function": healthy_functions}
             self.findings.append(
                 {
                     "type": "time_complexity",
@@ -378,7 +385,7 @@ class PerformanceAnalyzer(QualityAnalyzer):
                         functions.append(node.name)
                         lines.append(node.lineno)
         if functions:
-            clubbed = {"Functions": functions, "Lines": lines}
+            clubbed = {"function": functions, "lines": lines}
             self.findings.append(
                 {
                     "type": "recursive_without_memoization",
@@ -471,7 +478,7 @@ class PerformanceAnalyzer(QualityAnalyzer):
             clubbed = {
                 "lines": lines,
                 "targets": targets,
-                "functions": functions,
+                "function": functions,
                 "codes": codes,
             }
             self.findings.append(

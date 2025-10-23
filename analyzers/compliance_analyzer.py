@@ -68,13 +68,21 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
         # python_files = find_python_files(codebase_path)
         error_count = 0
         start_time = asyncio.get_event_loop().time()
-        python_files = self._find_python_files(config.target_path)
+
+        # python_files = self._find_python_files(config.target_path)
+        if getattr(config, "files", None):
+            # Use the explicit file list passed from CLI
+            python_files = config.files
+        else:
+            # Fallback: discover files automatically
+            python_files = self._find_python_files(config.target_path)
+
         if not python_files:
             logger.warning(f"No Python files found in {config.target_path}")
             return self._create_empty_result()
 
         await self.check_license_compliance(config.target_path)
-        await self.check_data_privacy_compliance(config.target_path)
+        # await self.check_data_privacy_compliance(config.target_path)
 
         execution_time = asyncio.get_event_loop().time() - start_time
         metrics = AnalysisMetrics(
@@ -117,6 +125,7 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
                     file_path="/".join(finding.get("file", "").split("/")[-2:]),
                     line_number=finding.get("line", 0),
                 ),
+                rule_id=finding.get("rule_id", None),
                 remediation_guidance=finding.get("suggestion", ""),
                 remediation_complexity=ComplexityLevel.MODERATE,
                 source_analyzer=self.name,
@@ -137,8 +146,11 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
                     rules_path,
                     "--no-git-ignore",
                     "--json-output=semgrep_output.json",
+                    "--quiet",
                 ],
                 check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
         except subprocess.CalledProcessError:
             traceback.print_exc()
@@ -175,8 +187,17 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
         output_file = "scancode_report.json"
         try:
             subprocess.run(
-                ["scancode", "-clpeui", "--json-pp", output_file, codebase_path],
+                [
+                    "scancode",
+                    "-clpeui",
+                    "--json-pp",
+                    output_file,
+                    codebase_path,
+                    "--quiet",
+                ],
                 check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
         except subprocess.CalledProcessError as e:
             traceback.print_exc()
@@ -369,6 +390,7 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
                     "clubbed": clubbed,
                     "description": f"{len(items)} {ftype.replace('_', ' ')} issue(s) found in {os.path.basename(path)}.",
                     "suggestion": "Review the clubbed details for remediation steps.",
+                    "rule_id": ftype,
                 }
             )
 
@@ -458,7 +480,7 @@ class ComplianceAnalyzer(ComplianceAnalyzer):
                     "type": "data_privacy",
                     "severity": severity,
                     "file": details["path"],
-                    "rule": details["check_id"],
+                    "rule_id": details["check_id"].split(".")[-1],
                     "line": "",
                     "description": (description),
                     "code_snippet": snippet,

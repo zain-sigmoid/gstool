@@ -87,7 +87,15 @@ class TestabilityAnalyzer(QualityAnalyzer):
             )
 
             # Find Python files
-            python_files, test_files = self._find_python_files(config.target_path)
+            # python_files, test_files = self._find_python_files(config.target_path)
+            if getattr(config, "files", None):
+                # Use the explicit file list passed from CLI
+                python_files = config.files
+                _, test_files = self._find_python_files(config.target_path)
+            else:
+                # Fallback: discover files automatically
+                python_files, test_files = self._find_python_files(config.target_path)
+
             if not python_files:
                 logger.warning(
                     f"No Python files found in {os.path.basename(config.target_path)}"
@@ -341,7 +349,7 @@ class TestabilityAnalyzer(QualityAnalyzer):
                 description=f"Test coverage is {coverage_percentage:.1f}%, below recommended {minimum_threshold}%",
                 category=FindingCategory.TESTABILITY,
                 severity=severity,
-                confidence_score=0.9,
+                confidence_score=0.7,
                 location=CodeLocation(
                     file_path="/".join(str(target_path).split("/")[-2:])
                 ),
@@ -388,7 +396,7 @@ class TestabilityAnalyzer(QualityAnalyzer):
                 description="No test files found in the project",
                 category=FindingCategory.TESTABILITY,
                 severity=SeverityLevel.HIGH,
-                confidence_score=0.95,
+                confidence_score=0.7,
                 location=CodeLocation(
                     file_path="/".join(str(target_path).split("/")[-2:])
                 ),
@@ -428,7 +436,7 @@ class TestabilityAnalyzer(QualityAnalyzer):
                             if len(untested_funcs) <= 2
                             else SeverityLevel.MEDIUM
                         ),
-                        confidence_score=0.8,
+                        confidence_score=0.7,
                         location=CodeLocation(
                             file_path="/".join(str(file_path).split("/")[-2:])
                         ),

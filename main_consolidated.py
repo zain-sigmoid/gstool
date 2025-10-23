@@ -10,16 +10,13 @@ import asyncio
 import os
 import logging
 import re
-from termcolor import colored
+import json
 from typing import List
-from pathlib import Path
 from utils.prod_shift import Extract
 import zipfile
 import shutil
 import io
 import pandas as pd
-import traceback
-from rich import print as rprint
 
 # Configure logging
 logging.basicConfig(
@@ -324,6 +321,30 @@ class ConsolidatedCodeReviewApp:
 
         # Help section
         st.markdown("---")
+        uploaded = st.file_uploader("Upload your output JSON file", type=["json"])
+        if st.button("See Results"):
+            if uploaded:
+                try:
+                    data = json.load(uploaded)  # file-like works directly
+                except Exception as e:
+                    st.error(f"Invalid JSON: {e}")
+                    st.stop()
+
+                try:
+                    report = ConsolidatedReport.from_dict(d=data)
+                except Exception as e:
+                    st.error(f"Could not convert JSON into ConsolidatedReport")
+                    st.stop()
+
+                # Now it's a real object with methods like get_summary_stats()
+                st.session_state.current_report = report
+                st.session_state.analysis_history.append(report)
+                st.session_state.analysis_running = False
+                st.success("Loaded report from JSON.")
+            else:
+                st.error("Please upload a valid JSON File")
+
+        st.markdown("---")
         st.subheader("❓ Need Help?")
 
         if st.button(
@@ -390,7 +411,9 @@ class ConsolidatedCodeReviewApp:
             #     self.engine.analyze(config, progress_cb=progress_cb)
             # )
             try:
-                report = loop.run_until_complete(self.engine.analyze(config, progress_cb=progress_cb))
+                report = loop.run_until_complete(
+                    self.engine.analyze(config, progress_cb=progress_cb)
+                )
                 # Update session state
                 st.session_state.current_report = report
                 st.session_state.analysis_history.append(report)
@@ -404,7 +427,9 @@ class ConsolidatedCodeReviewApp:
                         "Partial results are displayed below."
                     )
                 else:
-                    st.success(f"✅ Analysis completed! Found {len(report.findings)} findings.")
+                    st.success(
+                        f"✅ Analysis completed! Found {len(report.findings)} findings."
+                    )
 
                 # Success message
                 # st.success(f"✅ Analysis completed! Found {len(report.findings)} findings.")
@@ -463,7 +488,10 @@ class ConsolidatedCodeReviewApp:
                                     for cat in categories
                                 ]
                             )
-                        st.markdown(f"**Categories:**<br>{category_html}", unsafe_allow_html=True)
+                        st.markdown(
+                            f"**Categories:**<br>{category_html}",
+                            unsafe_allow_html=True,
+                        )
                     if hasattr(analyzer, "get_quality_categories"):
                         categories = analyzer.get_quality_categories()
                         if categories:
@@ -475,9 +503,12 @@ class ConsolidatedCodeReviewApp:
                                     for cat in categories
                                 ]
                             )
-                        st.markdown(f"**Categories:**<br>{category_html}", unsafe_allow_html=True)
-                    
-                            # st.write(f"**Categories:** {', '.join(categories)}")
+                        st.markdown(
+                            f"**Categories:**<br>{category_html}",
+                            unsafe_allow_html=True,
+                        )
+
+                        # st.write(f"**Categories:** {', '.join(categories)}")
 
         with col2:
             st.markdown("## 📊 Quick Stats")
@@ -628,7 +659,11 @@ class ConsolidatedCodeReviewApp:
                 )  # matches file.py or dir/file.py only
             ]
             options_two = ["All"] + sorted(valid_paths)
-            finding_file_filter = st.selectbox(f"Filter by Files (Total Unique Files **{len(valid_paths)}**)", options_two, index=0)
+            finding_file_filter = st.selectbox(
+                f"Filter by Files (Total Unique Files **{len(valid_paths)}**)",
+                options_two,
+                index=0,
+            )
 
         # Apply filters
         filtered_findings = self._apply_finding_filters(
@@ -666,22 +701,16 @@ class ConsolidatedCodeReviewApp:
 
     def _render_single_finding(self, finding: UnifiedFinding, index: int):
         """Render a single finding."""
-        # Severity color mapping
-        severity_colors = {
-            SeverityLevel.CRITICAL: "#ff4444",
-            SeverityLevel.HIGH: "#ff8800",
-            SeverityLevel.MEDIUM: "#ffaa00",
-            SeverityLevel.LOW: "#00aa44",
-            SeverityLevel.INFO: "#0088cc",
-        }
+        file_name = os.path.basename(finding.location.file_path or "Unknown")
+        space_count = 200
+        padding = "&nbsp;" * 10
 
-        severity_color = severity_colors.get(finding.severity, "#666666")
+        # expander_title = f"**{finding.severity.value.upper()}** - {finding.title} {padding} *`{file_name}`*"
+        expander_title = (
+            f"**{finding.severity.value.upper()}** - {finding.title} *`{file_name}`*"
+        )
 
-        with st.expander(
-            f"**{finding.severity.value.upper()}** - {finding.title}",
-            expanded=index < 5,  # Expand first 5 findings
-        ):
-            TARGET = "Maintainability Issue: Complexity Risk Ranking"
+        with st.expander(expander_title, expanded=index < 5):
             col1, col2 = st.columns([3, 1])
 
             with col1:
@@ -699,9 +728,7 @@ class ConsolidatedCodeReviewApp:
                     try:
                         df = pd.DataFrame(finding.clubbed)
                         df.index = range(1, len(df) + 1)
-                        with st.expander(
-                            f"{finding.title} -- {os.path.basename(finding.location.file_path)}"
-                        ):
+                        with st.expander(f"**{finding.title}**"):
                             st.table(df)
                     except Exception as e:
                         # traceback.print_exc()
@@ -730,6 +757,8 @@ class ConsolidatedCodeReviewApp:
                 st.markdown(f"**Category:** {finding.category.value.title()}")
                 st.markdown(f"**Analyzer:** {finding.source_analyzer}")
                 st.markdown(f"**Confidence:** {finding.confidence_score:.0%}")
+                if finding.rule_id is not None:
+                    st.markdown(f"**Rule ID:** {str(finding.rule_id).upper()}")
 
                 if finding.cwe_id:
                     st.markdown(f"**CWE:** {finding.cwe_id}")
@@ -813,6 +842,69 @@ class ConsolidatedCodeReviewApp:
         st.subheader("Summary")
         st.json(report.get_summary_stats())
 
+    def get_message(self, finding: dict) -> str:
+        """
+        Generate a human-readable message string for CSV export
+        from analyzer-specific 'clubbed' dictionaries.
+        """
+        clubbed = finding.get("clubbed") or {}
+        if not isinstance(clubbed, dict):
+            return str(clubbed)
+
+        # --- Common case: explicit messages already present ---
+        if "messages" in clubbed and clubbed["messages"]:
+            # Join messages with semicolon for readability
+            return "; ".join(map(str, clubbed["messages"]))
+
+        # --- Observability Analyzer ---
+        if all(k in clubbed for k in ["lines", "function", "Coverage Percentages"]):
+            funcs = ", ".join(map(str, clubbed.get("function", [])))
+            coverage = clubbed.get("Coverage Percentages", "N/A")
+            return f"Functions: {funcs} | Coverage: {coverage}%"
+
+        # --- Performance Analyzer ---
+        if any(k in clubbed for k in ["Time Complexities", "Function", "issue"]):
+            funcs = clubbed.get("Functions", [])
+            times = clubbed.get("Time Complexities", [])
+            issues = clubbed.get("Issue", [])
+            # Build function:complexity pairs if both exist
+            if funcs and times:
+                pairs = [f"{fn} ({tc})" for fn, tc in zip(funcs, times)]
+                msg = "; ".join(pairs)
+            else:
+                msg = ", ".join(funcs or times or [])
+            if issues:
+                msg += f" | Issues: {', '.join(map(str, issues))}"
+            return msg or "Performance issues detected"
+
+        # --- Robustness Analyzer ---
+        if "prefix" in clubbed:
+            prefixes = clubbed.get("prefix", [])
+            if isinstance(prefixes, list):
+                prefixes = ", ".join(map(str, prefixes))
+            return f"Dictionary access patterns: {prefixes}"
+
+        # --- Secrets Analyzer ---
+        if "snippets" in clubbed:
+            snippets = clubbed.get("snippets", [])
+            if isinstance(snippets, list):
+                snippets = "; ".join(map(str, snippets))
+            return f"Hardcoded secret snippets: {snippets}"
+
+        # --- Testability Analyzer ---
+        if "untested_functions" in clubbed:
+            funcs = clubbed.get("untested_functions", [])
+            if isinstance(funcs, list):
+                funcs = ", ".join(map(str, funcs))
+            return f"Untested functions: {funcs}"
+
+        # --- Default: fallback to lines if present ---
+        if "lines" in clubbed:
+            return f"Lines: {', '.join(map(str, clubbed['lines']))}"
+
+        # --- Final fallback ---
+        return ""
+
     def _render_export_options(self, report: ConsolidatedReport):
         """Render export options."""
         st.markdown("## 📋 Export Results")
@@ -839,6 +931,7 @@ class ConsolidatedCodeReviewApp:
                     "id": finding.id,
                     "title": finding.title,
                     "description": finding.description,
+                    "details": finding.details,
                     "clubbed": finding.clubbed,
                     "severity": finding.severity.value,
                     "category": finding.category.value,
@@ -941,7 +1034,7 @@ class ConsolidatedCodeReviewApp:
             if not lines:
                 return ""
             # use pipe and wrap in brackets -> [65|66|176|179]
-            return "[" + "|".join(map(str, lines)) + "]"
+            return "[" + ", ".join(map(str, lines)) + "]"
 
         csv_buffer = StringIO()
         fieldnames = [
@@ -949,11 +1042,13 @@ class ConsolidatedCodeReviewApp:
             "severity",
             "category",
             "clubbed_lines",
+            "functions",
             "clubbed_messages",
             "file_path",
             "line_number",
             "title",
             "description",
+            "details",
             "analyzer",
             "confidence_score",
         ]
@@ -961,20 +1056,39 @@ class ConsolidatedCodeReviewApp:
         csv_writer.writeheader()
 
         for f in findings_payload:
-            clubbed = f.get("clubbed") or {}  # ✅ handle None
+            clubbed = f.get("clubbed") or {}
             lines = clubbed.get("lines", [])
-            msgs = clubbed.get("messages", [])
+            # msg = self.get_message(f)
+            msg = self.get_message(
+                {
+                    **f,
+                    "clubbed": {
+                        k: v
+                        for k, v in clubbed.items()
+                        if k.lower() not in ["function", "untested_functions"]
+                    },
+                }
+            )
+
+            functions = (
+                clubbed.get("function")
+                or clubbed.get("Function")
+                or clubbed.get("untested_functions")
+                or []
+            )
 
             row = {
                 "id": f.get("id", ""),
                 "severity": f.get("severity", ""),
                 "category": f.get("category", ""),
                 "clubbed_lines": join_lines(lines),  # e.g. "83,109"
-                "clubbed_messages": _join_list(msgs, sep=" | "),  # e.g. "msg1 | msg2"
+                "functions": _join_list(functions, sep=", "),
+                "clubbed_messages": _join_list(msg, sep=" | "),  # e.g. "msg1 | msg2"
                 "file_path": _as_str_path(f.get("file_path")),
                 "line_number": f.get("line_number", ""),
                 "title": f.get("title", ""),
                 "description": f.get("description", ""),
+                "details": f.get("details", ""),
                 "analyzer": f.get("analyzer", ""),
                 "confidence_score": f.get("confidence_score", ""),
             }
@@ -1218,7 +1332,7 @@ class ConsolidatedCodeReviewApp:
                         ],
                         "tools_used": "Gitleaks",
                         "severity_focus": "Critical, High and Medium severity findings",
-                        "df":Severity.hardcoded_secret()
+                        "df": Severity.hardcoded_secret(),
                     },
                     "pii_phi": {
                         "description": "Identifies Personally Identifiable Information (PII) and Protected Health Information (PHI) to ensure compliance with data protection regulations.",
@@ -1232,8 +1346,9 @@ class ConsolidatedCodeReviewApp:
                             "IP addresses",
                         ],
                         "compliance": "GDPR, HIPAA, CCPA, PCI DSS",
+                        "tools_used": "AST, Custom Patterns",
                         "severity_focus": "Critical, High and Medium severity findings",
-                        "df":Severity.pii_phi()
+                        "df": Severity.pii_phi(),
                     },
                     "readability": {
                         "description": "Evaluates code readability, style, and maintainability using Pylint and custom checks.",
@@ -1246,7 +1361,7 @@ class ConsolidatedCodeReviewApp:
                         ],
                         "tools_used": "Pylint, custom patterns",
                         "severity_focus": "Medium, Low and Info severity findings",
-                        "df":Severity.readability()
+                        "df": Severity.readability(),
                     },
                     "robustness": {
                         "description": "Analyzes code robustness, error handling, and defensive programming practices.",
@@ -1257,8 +1372,9 @@ class ConsolidatedCodeReviewApp:
                             "Input validation problems",
                             "Exception handling gaps",
                         ],
+                        "tools_used": "bandit, mypy, semgrep",
                         "severity_focus": "High, Medium and Low severity findings",
-                        "df": Severity.robustness()
+                        "df": Severity.robustness(),
                     },
                     "testability": {
                         "description": "Evaluates code testability and suggests improvements for better testing coverage.",
@@ -1269,11 +1385,12 @@ class ConsolidatedCodeReviewApp:
                             "Hard-to-mock components",
                             "Test infrastructure issues",
                         ],
+                        "tools_used": "AST, Custom Patterns",
                         "severity_focus": "Medium and Low severity findings",
-                        "df":Severity.testability()
+                        "df": Severity.testability(),
                     },
                     "observability": {
-                        "description": "Analyzes logging, monitoring, and observability practices in your code.",
+                        "description": "Analyzes logging, monitoring, and observability practices in your code. Finds Critical functions, Critical Functions are functions in the codebase that handle essential operations such as error management, data validation, user authentication, or core business logic",
                         "what_it_finds": [
                             "Missing logging statements",
                             "Inadequate error logging",
@@ -1281,8 +1398,9 @@ class ConsolidatedCodeReviewApp:
                             "Debug information issues",
                             "Observability best practices",
                         ],
+                        "tools_used": "AST",
                         "severity_focus": "High, Medium, Low and Info severity findings",
-                        "df":Severity.observability()
+                        "df": Severity.observability(),
                     },
                     "injection": {
                         "description": "Detects potential injection vulnerabilities and unsafe input handling.",
@@ -1293,9 +1411,9 @@ class ConsolidatedCodeReviewApp:
                             "Path traversal issues",
                             "Unsafe input handling",
                         ],
-                        "tools_used": "Custom pattern matching",
+                        "tools_used": "Custom Patterns",
                         "severity_focus": "Critical, High and Medium severity findings",
-                        "df":Severity.injection()
+                        "df": Severity.injection(),
                     },
                     "maintainability": {
                         "description": "Assesses code maintainability using metrics like Cyclomatic Complexity and Maintainability Index.",
@@ -1305,9 +1423,10 @@ class ConsolidatedCodeReviewApp:
                             "Function duplication",
                             "Branches in the code",
                         ],
+                        "tools_used": "radon cc, radon mi, AST",
                         "severity_focus": "High, Medium and Info severity findings",
                         "image": ["assets/crr.png", "assets/ccinfo.png"],
-                        "df":Severity.maintainability()
+                        "df": Severity.maintainability(),
                     },
                     "performance": {
                         "description": "Identifies performance bottlenecks and inefficient code patterns.",
@@ -1317,8 +1436,9 @@ class ConsolidatedCodeReviewApp:
                             "Naive Sort patterns",
                             "Inefficient Data Structures",
                         ],
+                        "tools_used": "AST",
                         "severity_focus": "High, Medium and Low severity findings",
-                        "df":Severity.performance()
+                        "df": Severity.performance(),
                     },
                     "compliance": {
                         "description": "Checks for compliance with various regulatory frameworks and standards.",
@@ -1329,7 +1449,7 @@ class ConsolidatedCodeReviewApp:
                         ],
                         "tools_used": "Scancode, Semgrep",
                         "severity_focus": "Medium, Low and Info severity findings",
-                        "df":Severity.compliance()
+                        "df": Severity.compliance(),
                     },
                 }
 
@@ -1356,10 +1476,15 @@ class ConsolidatedCodeReviewApp:
                         if isinstance(images, list) and len(images) > 0:
                             # Create columns dynamically based on number of images
                             cols = st.columns(len(images))
-                            
+
                             for i, img in enumerate(images):
                                 with cols[i]:
-                                    st.image(img, caption=f"Figure {i+1}", use_container_width=True, width=250)
+                                    st.image(
+                                        img,
+                                        caption=f"Figure {i+1}",
+                                        use_container_width=True,
+                                        width=250,
+                                    )
                         else:  # single image
                             st.image(images)
 
@@ -1367,9 +1492,10 @@ class ConsolidatedCodeReviewApp:
                         f"**Severity focus:** {desc.get('severity_focus', 'All levels')}"
                     )
                     # st.dataframe(desc.get('df'), use_container_width=True, row_height=50)
-                    df = pd.DataFrame(desc.get('df'))
+                    df = pd.DataFrame(desc.get("df"))
                     # Convert to HTML and wrap long text using CSS
-                    st.markdown("""
+                    st.markdown(
+                        """
                     <style>
                     .wrap-text-table td {
                         white-space: normal !important;
@@ -1378,10 +1504,17 @@ class ConsolidatedCodeReviewApp:
                         vertical-align: top !important;
                     }
                     </style>
-                    """, unsafe_allow_html=True)
+                    """,
+                        unsafe_allow_html=True,
+                    )
 
                     # Render as HTML table with wrapping
-                    st.markdown(df.to_html(classes="wrap-text-table", index=False, escape=False), unsafe_allow_html=True)
+                    st.markdown(
+                        df.to_html(
+                            classes="wrap-text-table", index=False, escape=False
+                        ),
+                        unsafe_allow_html=True,
+                    )
 
     def _render_common_questions(self):
         """Render common questions FAQ section."""

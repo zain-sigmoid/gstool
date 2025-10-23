@@ -11,6 +11,7 @@ import logging
 import statistics
 import asyncio
 import traceback
+from collections import Counter
 from typing import List, Dict, Any, Tuple
 from collections import defaultdict
 from core.interfaces import QualityAnalyzer
@@ -38,6 +39,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
         super().__init__("readability", "1.0.0")
         self.quality_categories = ["naming", "documentation", "formatting", "clarity"]
         self.scores = []
+        self.overall_details = Counter()
         self._initialize_readability_patterns()
 
     def get_supported_file_types(self) -> List[str]:
@@ -114,7 +116,14 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             )
 
             # Find Python files
-            python_files = self._find_python_files(config.target_path)
+            # python_files = self._find_python_files(config.target_path)
+            if getattr(config, "files", None):
+                # Use the explicit file list passed from CLI
+                python_files = config.files
+            else:
+                # Fallback: discover files automatically
+                python_files = self._find_python_files(config.target_path)
+
             if not python_files:
                 logger.warning(
                     f"No Python files found in {os.path.basename(config.target_path)}"
@@ -127,6 +136,12 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             analyzer_config = config.analyzer_configs.get(
                 self.name, self.get_default_config()
             )
+            active = self._check_pylint_status()
+            if not active:
+                logger.error(
+                    "Aborting Readability Ananlysis, pylint not found in the environment"
+                )
+                return
 
             # Perform readability analysis
             analysis_results = await self._perform_readability_analysis(
@@ -188,10 +203,34 @@ class ReadabilityAnalyzer(QualityAnalyzer):
                 findings=[], metrics=metrics, metadata={"error": str(e)}
             )
 
+    def _check_pylint_status(
+        self,
+    ) -> bool:
+        #  Check if pylint is available
+        result = subprocess.run(
+            ["pylint", "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+        )
+
+        if result.returncode != 0:
+            logger.warning("Pylint not found. Install with: pip install pylint")
+            return False
+
+        return True
+
     def _initialize_readability_patterns(self):
         """Initialize readability issue patterns and mappings."""
         # Pylint message IDs focused on readability
         self.readability_issue_mapping = {
+            ## error
+            "syntax-error": {
+                "category": "formatting",
+                "title": "Parsing failed",
+                "severity": SeverityLevel.HIGH,
+                "complexity": ComplexityLevel.COMPLEX,
+            },
             # Naming conventions
             "invalid-name": {
                 "category": "naming",
@@ -215,13 +254,13 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             "missing-module-docstring": {
                 "category": "documentation",
                 "title": "Missing Module Documentation",
-                "severity": SeverityLevel.MEDIUM,
+                "severity": SeverityLevel.LOW,
                 "complexity": ComplexityLevel.SIMPLE,
             },
             "missing-class-docstring": {
                 "category": "documentation",
                 "title": "Missing Class Documentation",
-                "severity": SeverityLevel.MEDIUM,
+                "severity": SeverityLevel.LOW,
                 "complexity": ComplexityLevel.SIMPLE,
             },
             "missing-function-docstring": {
@@ -265,13 +304,13 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             "unused-import": {
                 "category": "clarity",
                 "title": "Unused Import",
-                "severity": SeverityLevel.LOW,
+                "severity": SeverityLevel.MEDIUM,
                 "complexity": ComplexityLevel.TRIVIAL,
             },
             "unused-variable": {
                 "category": "clarity",
                 "title": "Unused Variable",
-                "severity": SeverityLevel.LOW,
+                "severity": SeverityLevel.MEDIUM,
                 "complexity": ComplexityLevel.SIMPLE,
             },
             "redefined-outer-name": {
@@ -289,7 +328,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             "too-many-arguments": {
                 "category": "clarity",
                 "title": "Too Many Function Arguments",
-                "severity": SeverityLevel.MEDIUM,
+                "severity": SeverityLevel.LOW,
                 "complexity": ComplexityLevel.MODERATE,
             },
         }
@@ -337,6 +376,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             "trailing-whitespace": "The line has extra spaces or tabs at the end.",
             "bad-classmethod-argument": "The first argument of a `@classmethod` is not named `cls`. By convention and readability standards, class methods should always use `cls` as their first parameter",
             "bad-mcs-classmethod-argument": "The first argument of a metaclass `@classmethod` is not named `mcs`. By convention, metaclass methods should always use `mcs` as their first parameter.",
+            "syntax-error": "The underlying cause is an invalid Python grammar — missing punctuation, incorrect indentation, misplaced parentheses/brackets, etc",
         }
         return ISSUE_DETAILS.get(symbol, f"No details available for symbol: {symbol}")
 
@@ -388,11 +428,15 @@ class ReadabilityAnalyzer(QualityAnalyzer):
         # else:
         #     overall_score = 100 / total_issues
         overall_score = round(statistics.mean(self.scores), 2) * 10
+        overall_result = dict(self.overall_details)
+        total = sum(overall_result.values()) or 1
+        overall_result["total_issues"] = total
         return {
             "all_issues": all_issues,
             "total_issues": total_issues,
             "issues_by_category": issues_by_category,
             "overall_readability_score": overall_score,
+            "overall_readability_details": overall_result,
             "files_analyzed": total_files,
         }
 
@@ -402,18 +446,6 @@ class ReadabilityAnalyzer(QualityAnalyzer):
         """Run Pylint analysis on a single file."""
         try:
             timeout = config.get("pylint_timeout", 60)
-
-            # Check if pylint is available
-            result = subprocess.run(
-                ["pylint", "--version"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=5,
-            )
-
-            if result.returncode != 0:
-                logger.warning("Pylint not found. Install with: pip install pylint")
-                return []
 
             # Run pylint with JSON output
             result = subprocess.run(
@@ -434,7 +466,10 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             if result.stdout:
                 try:
                     pylint_output = json.loads(result.stdout)
-                    self.scores.append(pylint_output.get("statistics").get("score", 0))
+                    pylint_stats = pylint_output.get("statistics", {})
+                    self.scores.append(pylint_stats.get("score", 0))
+                    msg_counts = pylint_stats.get("messageTypeCount", {})
+                    self.overall_details.update(msg_counts)
                     return self._process_pylint_output(
                         pylint_output.get("messages"), file_path
                     )
@@ -507,14 +542,14 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             or "test" in filename
             or "/test" in file_path.lower()
         )
-    
-    def _get_object_mapping(self, symbol:str) ->str:
+
+    def _get_object_mapping(self, symbol: str) -> str:
         OBJECT_SYMBOLS = {
-            "missing-function-docstring":"Function",
-            "too-many-arguments":"Function",
-            "missing-class-docstring":"Class",
-            "unused-variable":"In",
-            "invalid-name" : "In"
+            "missing-function-docstring": "Function",
+            "too-many-arguments": "Function",
+            "missing-class-docstring": "Class",
+            "unused-variable": "In",
+            "invalid-name": "In",
         }
 
         return OBJECT_SYMBOLS.get(symbol, "In")
@@ -559,10 +594,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             "bad indentation": "bad-indentation",
         }
 
-        CLUB_SYMBOLS_ONE = {
-            "missing-module-docstring",
-            "missing-final-newline"
-        }
+        CLUB_SYMBOLS_ONE = {"missing-module-docstring", "missing-final-newline"}
 
         # Keyed by (file_path, normalized_symbol)
         base_for_key: Dict[Tuple[str, str], Dict[str, Any]] = {}
@@ -601,7 +633,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
                 elif msg:
                     acc_for_key[key]["messages"].append(msg)
             elif file_path and sym in CLUB_SYMBOLS_ONE:
-                key = (sym,"one")
+                key = (sym, "one")
                 if key not in base_for_key:
                     base_for_key[key] = dict(issue)
                 ln = issue.get("line_number")
@@ -630,7 +662,6 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             }
             merged["line_number"] = ""
             out.append(merged)
-                
 
         # --- Update summary ---
         new_total = len(out)
@@ -653,6 +684,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
 
         # Check overall readability score
         overall_score = analysis_results["overall_readability_score"]
+        overall_details = analysis_results["overall_readability_details"]
         minimum_threshold = config.get("minimum_readability_score", 75.0)
         target_path = str(target_path)
         spf = "/".join(target_path.split("/")[-2:])
@@ -664,6 +696,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             finding = UnifiedFinding(
                 title="Poor Code Readability",
                 description=f"Code readability score is {overall_score:.1f}%, below recommended {minimum_threshold}%",
+                details=overall_details,
                 category=FindingCategory.QUALITY,
                 severity=severity,
                 confidence_score=0.8,
@@ -733,6 +766,7 @@ class ReadabilityAnalyzer(QualityAnalyzer):
             "trailing-whitespace": "The line has extra spaces or tabs at the end. Remove them to improve cleanliness.",
             "bad-classmethod-argument": "Rename the first parameter of the class method to `cls` to follow Python conventions",
             "bad-mcs-classmethod-argument": "Rename the first parameter of the metaclass method to `mcs` to comply with Python conventions and improve clarity.",
+            "syntax-error": "Check the filename, line number & caret pointer in the output",
         }
 
         return remediation_mapping.get(
