@@ -17,12 +17,14 @@ jobs:
 
       - name: Prepare mirror content
         run: |
-          keep=(cli.py pyproject.toml MANIFEST.in README.md LICENSE analyzers core utils)
-          shopt -s extglob
-          for f in * .[^.]*; do
+          keep=(.git .github cli.py pyproject.toml MANIFEST.in README.md LICENSE analyzers core utils)
+          shopt -s extglob dotglob
+          for f in * .*; do
+            [ "$f" = "." ] || [ "$f" = ".." ] && continue
+            [ "$f" = ".git" ] && continue
             case " ${keep[*]} " in
               *" ${f} "*) : ;;   # keep
-              *) rm -rf "$f" || true ;;
+              *) rm -rf -- "$f" || true ;;
             esac
           done
 
@@ -33,13 +35,13 @@ jobs:
           install -m 700 -d ~/.ssh
           printf "%s" "$DEST_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          # Trust GitHub host key
           ssh-keyscan -H github.com >> ~/.ssh/known_hosts
 
-      - name: Configure git
+      # Optional: make config global here OR delete this step
+      - name: Configure git (global)
         run: |
-          git config user.name "github-actions"
-          git config user.email "actions@users.noreply.github.com"
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@users.noreply.github.com"
 
       - name: Push to sigscan-cli@main
         run: |
@@ -51,5 +53,5 @@ jobs:
           git add -A
           git commit -m "Mirror from gstool@cli: $(date -u +'%Y-%m-%dT%H:%M:%SZ')" || true
           git branch -M main
-          git remote add dest git@github.com:YOUR_ORG/sigscan-cli.git
+          git remote add dest git@github.com:zain-sigmoid/sigscan-cli.git
           git push -f dest main
