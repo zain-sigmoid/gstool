@@ -80,12 +80,12 @@ options:
 This file can be uploaded on the tool to view the result at <a href="https://code-quality.streamlit.app/" target="_blank">Sigscan Tool</a>
 
 ## 🧩 Troubleshooting
-- **“gitleaks not found”**
-<br>
+**“gitleaks not found”**<br>
 The CLI will auto-download; ensure your environment allows network access and /tmp write permissions. You can also download on MacOS via brew
 ```bash
 brew install gitleaks
 ```
+
 
 ## 🛠️ Local Development
 ```bash
