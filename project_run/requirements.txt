@@ -1,4 +1,0 @@
-django==2.0.0
-    requests==2.20.0
-    flask==0.12.0
-    
