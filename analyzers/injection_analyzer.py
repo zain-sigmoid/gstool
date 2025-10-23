@@ -111,7 +111,14 @@ class InjectionAnalyzer(SecurityAnalyzer):
             )
 
             # Find Python files
-            python_files = self._find_python_files(config.target_path)
+            # python_files = self._find_python_files(config.target_path)
+            if getattr(config, "files", None):
+                # Use the explicit file list passed from CLI
+                python_files = config.files
+            else:
+                # Fallback: discover files automatically
+                python_files = self._find_python_files(config.target_path)
+
             if not python_files:
                 logger.warning(
                     f"No Python files found in {os.path.basename(config.target_path)}"
@@ -454,7 +461,7 @@ class InjectionAnalyzer(SecurityAnalyzer):
                     file_path="/".join(vulnerability["file_path"].split("/")[-2:]),
                     line_number=vulnerability["line_number"],
                 ),
-                rule_id=f"INJECTION_{vulnerability['vulnerability_type'].upper()}",
+                rule_id=f"{vulnerability['vulnerability_type'].upper()}",
                 cwe_id=vulnerability["cwe_id"],
                 code_snippet=vulnerability["code_snippet"],
                 remediation_guidance=self._get_remediation_guidance(

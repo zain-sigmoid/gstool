@@ -128,7 +128,14 @@ class RobustnessAnalyzer(QualityAnalyzer):
             )
 
             # Find Python files
-            python_files = self._find_python_files(config.target_path)
+            # python_files = self._find_python_files(config.target_path)
+            if getattr(config, "files", None):
+                # Use the explicit file list passed from CLI
+                python_files = config.files
+            else:
+                # Fallback: discover files automatically
+                python_files = self._find_python_files(config.target_path)
+
             if not python_files:
                 logger.warning(
                     f"No Python files found in {os.path.basename(config.target_path)}"
@@ -213,7 +220,7 @@ class RobustnessAnalyzer(QualityAnalyzer):
             return AnalysisResult(
                 findings=[], metrics=metrics, metadata={"error": str(e)}
             )
-        
+
     def club_dict_access_findings(self, unified_findings):
         """Group 'dict-access-without-get' findings by file into one unified entry."""
 
@@ -223,8 +230,6 @@ class RobustnessAnalyzer(QualityAnalyzer):
         # 1️⃣ Group by file path
         for f in unified_findings:
             grouped[(f.location.file_path, f.title)].append(f)
-        
-        # rprint(grouped)
 
         # 2️⃣ Create one combined finding per file
         for (file_path, title), group in grouped.items():
@@ -232,11 +237,19 @@ class RobustnessAnalyzer(QualityAnalyzer):
 
             for item in group:
                 # Extract prefix (like data_trimmed[*])
-                prefix_line = next((d for d in item.details if "prefix:" in d.lower()), None)
-                prefix = re.search(r"`(.+?)`", prefix_line).group(1) if prefix_line else "unknown"
+                prefix_line = next(
+                    (d for d in item.details if "prefix:" in d.lower()), None
+                )
+                prefix = (
+                    re.search(r"`(.+?)`", prefix_line).group(1)
+                    if prefix_line
+                    else "unknown"
+                )
 
                 # Extract suffix count
-                suffix_line = next((d for d in item.details if "suffix" in d.lower()), "")
+                suffix_line = next(
+                    (d for d in item.details if "suffix" in d.lower()), ""
+                )
                 match_suffix = re.search(r"Found\s+(\d+)", suffix_line)
                 suffix_count = int(match_suffix.group(1)) if match_suffix else 0
 
@@ -258,7 +271,7 @@ class RobustnessAnalyzer(QualityAnalyzer):
                 severity=group[0].severity,
                 confidence_score=0.7,
                 location=CodeLocation(file_path=file_path),
-                rule_id=group[0].rule_id,
+                rule_id="OPEN-WITHOUT-TRY-EXCEPT",
                 remediation_guidance=group[0].remediation_guidance,
                 remediation_complexity=group[0].remediation_complexity,
                 source_analyzer=group[0].source_analyzer,
@@ -330,6 +343,7 @@ class RobustnessAnalyzer(QualityAnalyzer):
             "import-not-found": SeverityLevel.HIGH,  # missing dependency
             "assignment": SeverityLevel.HIGH,  # invalid assignment type
             "return": SeverityLevel.HIGH,  # invalid return statement/type
+            "has-type": SeverityLevel.HIGH,
             # 🟠 Medium — unsafe, but not immediate runtime breakage
             "no-redef": SeverityLevel.MEDIUM,  # redefinition may shadow variables
             "operator": SeverityLevel.MEDIUM,  # wrong operator types
@@ -364,6 +378,7 @@ class RobustnessAnalyzer(QualityAnalyzer):
             "misc": "Miscellaneous Type Checking Issue",
             "union-attr": "Invalid Union Attribute Access",
             "annotation-unchecked": "Unchecked Type Annotation",
+            "has-type": "Unknown or Unresolved Type Reference",
         }
         return code_mapping.get(code, "Type Checking Issue")
 
@@ -535,18 +550,6 @@ rules:
                     if stdout:
                         try:
                             data = json.loads(stdout.decode())
-                            from collections import defaultdict
-
-                            def _rule_id_of(item):
-                                extra = item.get("extra") or {}
-                                meta = extra.get("metadata") or {}
-                                return (
-                                    meta.get("rule_id")
-                                    or extra.get("message_id")
-                                    or item.get("check_id")
-                                    or item.get("rule_id")
-                                    or "<unknown>"
-                                )
 
                             grouped = defaultdict(
                                 lambda: {
@@ -557,7 +560,7 @@ rules:
                             )
 
                             for ri in data.get("results", []):
-                                rid = (_rule_id_of(ri) or "").strip().lower()
+                                rid = "open-without-try-except".upper()
                                 start = ri.get("start") or {}
                                 lnum = start.get("line") or ri.get("start_line")
                                 msg = (
@@ -832,7 +835,7 @@ rules:
             remediation_guidance=self._get_bandit_remediation(test_id),
             remediation_complexity=ComplexityLevel.MODERATE,
             source_analyzer=self.name,
-            extra_data={"bandit_issue": issue, "priority_score":0.7},
+            extra_data={"bandit_issue": issue, "priority_score": 0.7},
         )
 
     def _create_mypy_finding(
@@ -858,19 +861,23 @@ rules:
         return UnifiedFinding(
             title=f"{', '.join(error)}",
             description=formatted_msg,
-            details=self._get_mypy_detail(error_code) + f"[{error_code}]",
+            details=self._get_mypy_detail(error_code),
             category=FindingCategory.QUALITY,
             severity=self._get_mypy_severity_mapping(codes[0]),
             confidence_score=0.9,  # MyPy is quite reliable
             location=CodeLocation(
                 file_path="/".join(filepath.split("/")[-2:]),
             ),
-            rule_id=error_code,
+            rule_id=error_code.upper(),
             remediation_guidance=self._get_mypy_remediation(error_code),
             remediation_complexity=self._get_mypy_complexity(error_code),
             source_analyzer=self.name,
             tags={"type_safety", "static_analysis"},
-            extra_data={"mypy_level": level, "error_code": error_code, "priority_score":0.7},
+            extra_data={
+                "mypy_level": level,
+                "error_code": error_code,
+                "priority_score": 0.7,
+            },
         )
 
     def _create_semgrep_finding(
@@ -895,7 +902,7 @@ rules:
             remediation_complexity=ComplexityLevel.SIMPLE,
             source_analyzer=self.name,
             tags={"error_handling", "file_operations"},
-            extra_data={"semgrep_result": result_item,"priority_score":0.7},
+            extra_data={"semgrep_result": result_item, "priority_score": 0.7},
         )
 
     def _create_dict_access_finding(
@@ -929,7 +936,7 @@ rules:
                 file_path="/".join(file_path.split("/")[-2:]),
                 line_number=line_num,
             ),
-            rule_id="dict-access-without-get",
+            rule_id="dict-access-without-get".upper(),
             code_snippet=line_content.strip(),
             remediation_guidance=(
                 "Consider using dict.get() method with default values to prevent KeyError exceptions."
@@ -941,7 +948,7 @@ rules:
             remediation_complexity=ComplexityLevel.SIMPLE,
             source_analyzer=self.name,
             tags={"safe_patterns", "error_prevention"},
-            extra_data={"line_content": line_content.strip(), "priority_score":0.7},
+            extra_data={"line_content": line_content.strip(), "priority_score": 0.7},
         )
 
     def _create_generic_bandit_finding(
@@ -1028,6 +1035,7 @@ rules:
             "union-attr": "Only access attributes present on every member of the Union. Narrow the type first via isinstance/None checks or match/case; then access or use typing.cast after the guard.",
             "annotation-unchecked": "Provide concrete, checkable annotations (avoid Any/dynamic constructs). Add missing stubs/plugins if needed, and annotate decorated/overloaded functions explicitly so MyPy can check them.",
             "misc": "Inspect the full error text and add precise type annotations or refactor dynamic code to be type-safe. If from third-party libs, add type stubs or pin versions. Use reveal_type to locate the mismatch.",
+            "has-type": "Add explicit type annotations to the variable or attribute, or reorder code to ensure the type is defined before use. If caused by cyclic imports, use 'from typing import TYPE_CHECKING' guards or refactor imports.",
         }
         return guidance.get(error_code, "Review and fix the type checking issue.")
 
@@ -1079,6 +1087,7 @@ rules:
                 "Miscellaneous type checking issue. "
                 "The analyzer encountered a type inconsistency that does not fit a specific category."
             ),
+            "has-type": "Cannot determine the type of a variable, attribute, or reference. This often occurs when a symbol is used before its type is known, such as in cyclic imports or class attributes without explicit type annotations.",
         }
         return details.get(
             error_code, "Analyzer reported a type-checking issue with this code."

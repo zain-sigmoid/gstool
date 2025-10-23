@@ -88,7 +88,14 @@ class ObservabilityAnalyzer(QualityAnalyzer):
             )
 
             # Find Python files
-            python_files = self._find_python_files(config.target_path)
+            # python_files = self._find_python_files(config.target_path)
+            if getattr(config, "files", None):
+                # Use the explicit file list passed from CLI
+                python_files = config.files
+            else:
+                # Fallback: discover files automatically
+                python_files = self._find_python_files(config.target_path)
+
             if not python_files:
                 logger.warning(
                     f"No Python files found in {os.path.basename(config.target_path)}"
@@ -415,10 +422,12 @@ class ObservabilityAnalyzer(QualityAnalyzer):
                         "lines": lines,
                         "function": names,
                     }
+                    details = "Critical Function are those functions which have error, exception, process, validate, authenticate, authorize, handle type names or function contain try-except block or contains raise, error, exceptions."
                     finding = UnifiedFinding(
                         title="Critical Functions Missing Logging",
                         description=description,
                         clubbed=clubbed,
+                        details=details,
                         category=FindingCategory.OBSERVABILITY,
                         severity=SeverityLevel.HIGH,
                         confidence_score=0.8,
