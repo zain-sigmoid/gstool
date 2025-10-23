@@ -1,5 +1,4 @@
 name: Mirror CLI to sigscan-cli
-
 on:
   push:
     branches: [ cli ]
@@ -14,35 +13,36 @@ jobs:
         with:
           ref: cli
           fetch-depth: 0
-
+          
       - name: Prepare mirror content
         run: |
-          keep=(.git .github cli.py pyproject.toml MANIFEST.in README.md LICENSE analyzers core utils)
-          shopt -s extglob dotglob
-          for f in * .*; do
-            [ "$f" = "." ] || [ "$f" = ".." ] && continue
-            [ "$f" = ".git" ] && continue
+          keep=(cli.py pyproject.toml MANIFEST.in README.md LICENSE analyzers core utils)
+          shopt -s extglob
+          for f in * .[^.]*; do
             case " ${keep[*]} " in
               *" ${f} "*) : ;;   # keep
-              *) rm -rf -- "$f" || true ;;
+              *) rm -rf "$f" || true ;;
             esac
           done
-
+          
       - name: Configure SSH
         env:
           DEST_SSH_KEY: ${{ secrets.SIGSCAN_MIRROR_DEPLOY_KEY }}
         run: |
           install -m 700 -d ~/.ssh
-          printf "%s" "$DEST_SSH_KEY" > ~/.ssh/id_ed25519
+          # Write key and ensure proper newline handling
+          echo "$DEST_SSH_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+          # Trust GitHub host key
           ssh-keyscan -H github.com >> ~/.ssh/known_hosts
-
-      # Optional: make config global here OR delete this step
-      - name: Configure git (global)
+          # Test SSH connection
+          ssh -T git@github.com || true
+          
+      - name: Configure git
         run: |
-          git config --global user.name "github-actions"
-          git config --global user.email "actions@users.noreply.github.com"
-
+          git config user.name "github-actions"
+          git config user.email "actions@users.noreply.github.com"
+          
       - name: Push to sigscan-cli@main
         run: |
           git init mirror
