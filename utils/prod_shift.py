@@ -135,46 +135,6 @@ class Extract:
                 with zf.open(member) as src, open(target_path, "wb") as out:
                     out.write(src.read())
 
-    # @staticmethod
-    # def count_code_files(root: Path, exts: Iterable[str]) -> int:
-    #     n = 0
-    #     for p in root.rglob("*"):
-    #         if p.is_file() and p.suffix.lower() in exts:
-    #             n += 1
-    #     return n
-
-    # @staticmethod
-    # def find_best_project_root(base: Path, exts: Iterable[str] = CODE_EXTS) -> Path:
-    #     """Heuristic:
-    #     1) If base has code files directly, use base.
-    #     2) Else, among base's subdirs, pick the one with the most code files.
-    #     3) If tie or none have code, fall back to base.
-    #     This avoids relying on specific folder names like __MACOSX.
-    #     """
-    #     # 1) Code at base?
-    #     if any(
-    #         p.is_file() and p.suffix.lower() in exts
-    #         for p in base.iterdir()
-    #         if p.is_file()
-    #     ):
-    #         return base
-
-    #     # 2) Choose subdir with most code files
-    #     candidates = [d for d in base.iterdir() if d.is_dir()]
-    #     if not candidates:
-    #         return base
-
-    #     best = None
-    #     best_count = -1
-    #     for d in candidates:
-    #         cnt = Extract.count_code_files(d, exts)
-    #         if cnt > best_count:
-    #             best = d
-    #             best_count = cnt
-
-    #     # 3) Fallback
-    #     return best if best and best_count > 0 else base
-
     @staticmethod
     def is_hidden_dir(p: Path) -> bool:
         name = p.name

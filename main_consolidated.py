@@ -10,6 +10,7 @@ import asyncio
 import os
 import logging
 import re
+import json
 from typing import List
 from utils.prod_shift import Extract
 import zipfile
@@ -319,6 +320,30 @@ class ConsolidatedCodeReviewApp:
                     st.rerun()
 
         # Help section
+        st.markdown("---")
+        uploaded = st.file_uploader("Upload your output JSON file", type=["json"])
+        if st.button("See Results"):
+            if uploaded:
+                try:
+                    data = json.load(uploaded)  # file-like works directly
+                except Exception as e:
+                    st.error(f"Invalid JSON: {e}")
+                    st.stop()
+
+                try:
+                    report = ConsolidatedReport.from_dict(d=data)
+                except Exception as e:
+                    st.error(f"Could not convert JSON into ConsolidatedReport")
+                    st.stop()
+
+                # Now it's a real object with methods like get_summary_stats()
+                st.session_state.current_report = report
+                st.session_state.analysis_history.append(report)
+                st.session_state.analysis_running = False
+                st.success("Loaded report from JSON.")
+            else:
+                st.error("Please upload a valid JSON File")
+
         st.markdown("---")
         st.subheader("❓ Need Help?")
 
@@ -703,9 +728,7 @@ class ConsolidatedCodeReviewApp:
                     try:
                         df = pd.DataFrame(finding.clubbed)
                         df.index = range(1, len(df) + 1)
-                        with st.expander(
-                            f"{finding.title} -- {os.path.basename(finding.location.file_path)}"
-                        ):
+                        with st.expander(f"**{finding.title}**"):
                             st.table(df)
                     except Exception as e:
                         # traceback.print_exc()
@@ -734,6 +757,8 @@ class ConsolidatedCodeReviewApp:
                 st.markdown(f"**Category:** {finding.category.value.title()}")
                 st.markdown(f"**Analyzer:** {finding.source_analyzer}")
                 st.markdown(f"**Confidence:** {finding.confidence_score:.0%}")
+                if finding.rule_id is not None:
+                    st.markdown(f"**Rule ID:** {str(finding.rule_id).upper()}")
 
                 if finding.cwe_id:
                     st.markdown(f"**CWE:** {finding.cwe_id}")
@@ -1321,6 +1346,7 @@ class ConsolidatedCodeReviewApp:
                             "IP addresses",
                         ],
                         "compliance": "GDPR, HIPAA, CCPA, PCI DSS",
+                        "tools_used": "AST, Custom Patterns",
                         "severity_focus": "Critical, High and Medium severity findings",
                         "df": Severity.pii_phi(),
                     },
@@ -1346,6 +1372,7 @@ class ConsolidatedCodeReviewApp:
                             "Input validation problems",
                             "Exception handling gaps",
                         ],
+                        "tools_used": "bandit, mypy, semgrep",
                         "severity_focus": "High, Medium and Low severity findings",
                         "df": Severity.robustness(),
                     },
@@ -1358,6 +1385,7 @@ class ConsolidatedCodeReviewApp:
                             "Hard-to-mock components",
                             "Test infrastructure issues",
                         ],
+                        "tools_used": "AST, Custom Patterns",
                         "severity_focus": "Medium and Low severity findings",
                         "df": Severity.testability(),
                     },
@@ -1370,6 +1398,7 @@ class ConsolidatedCodeReviewApp:
                             "Debug information issues",
                             "Observability best practices",
                         ],
+                        "tools_used": "AST",
                         "severity_focus": "High, Medium, Low and Info severity findings",
                         "df": Severity.observability(),
                     },
@@ -1382,7 +1411,7 @@ class ConsolidatedCodeReviewApp:
                             "Path traversal issues",
                             "Unsafe input handling",
                         ],
-                        "tools_used": "Custom pattern matching",
+                        "tools_used": "Custom Patterns",
                         "severity_focus": "Critical, High and Medium severity findings",
                         "df": Severity.injection(),
                     },
@@ -1394,6 +1423,7 @@ class ConsolidatedCodeReviewApp:
                             "Function duplication",
                             "Branches in the code",
                         ],
+                        "tools_used": "radon cc, radon mi, AST",
                         "severity_focus": "High, Medium and Info severity findings",
                         "image": ["assets/crr.png", "assets/ccinfo.png"],
                         "df": Severity.maintainability(),
@@ -1406,6 +1436,7 @@ class ConsolidatedCodeReviewApp:
                             "Naive Sort patterns",
                             "Inefficient Data Structures",
                         ],
+                        "tools_used": "AST",
                         "severity_focus": "High, Medium and Low severity findings",
                         "df": Severity.performance(),
                     },
