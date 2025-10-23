@@ -5,7 +5,10 @@ __pycache__/
 .DS_Store
 scancode_report.json
 semgrep_output.json
+out.json
 
 user_project/
+assets/
+project_run/
 project_run/RGM_econ_pyfiles/
 project_run/RGM_econ_pyfiles.zip
