@@ -1,4 +1,4 @@
-# 🔍 SigScan - Command Line Inetrface
+# 🔍 SigScan - Command Line Interface
 ### Unified analysis tool combining multiple security, quality, and compliance checkers.
 
 ## ✨ Features
@@ -76,11 +76,12 @@ options:
 ```
 
 ## 📤 Output
-- JSON file saved in the current directory
+- JSON file saved in the current directory<br>
 This file can be uploaded on the tool to view the result at <a href="https://code-quality.streamlit.app/" target="_blank">Sigscan Tool</a>
 
 ## 🧩 Troubleshooting
 - **“gitleaks not found”**
+<br>
 The CLI will auto-download; ensure your environment allows network access and /tmp write permissions. You can also download on MacOS via brew
 ```bash
 brew install gitleaks
@@ -88,8 +89,8 @@ brew install gitleaks
 
 ## 🛠️ Local Development
 ```bash
-git clone https://github.com/sanjeetarya001/CodeQualityShield
-cd codequalityshield
+git clone https://github.com/zain-sigmoid/sigscan-cli
+cd sigscan-cli
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
