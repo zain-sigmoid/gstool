@@ -87,7 +87,14 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
         """
         error_count = 0
         start_time = asyncio.get_event_loop().time()
-        python_files = self._find_python_files(config.target_path)
+        # python_files = self._find_python_files(config.target_path)
+        if getattr(config, "files", None):
+            # Use the explicit file list passed from CLI
+            python_files = config.files
+        else:
+            # Fallback: discover files automatically
+            python_files = self._find_python_files(config.target_path)
+
         if not python_files:
             logger.warning(
                 f"No Python files found in {os.path.basename(config.target_path)}"
@@ -582,7 +589,9 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
 
     def _analyze_function_duplication(self, python_files):
         # function_map = defaultdict(lambda: {"files": set(), "names": set(), "lines": [], "identifiers": set()})
-        function_map = defaultdict(lambda: {"files": set(), "lines": [], "identifiers": set()})
+        function_map = defaultdict(
+            lambda: {"files": set(), "lines": [], "identifiers": set()}
+        )
 
         for file_path in python_files:
             try:
@@ -598,15 +607,17 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                             if isinstance(ret, (ast.Attribute, ast.Constant)):
                                 continue
                         func_hash, ids = self._hash_function_structure(node)
-                        key = (node.name, func_hash)  # unique per function name + structure
+                        key = (
+                            node.name,
+                            func_hash,
+                        )  # unique per function name + structure
                         entry = function_map[key]
                         entry["files"].add(os.path.basename(file_path))
                         entry["lines"].append(node.lineno)
                         entry["identifiers"].update(ids)
-    
+
             except Exception:
                 continue
-
 
         # Find duplicates (reported once per function name)
         for (func_name, func_hash), meta in function_map.items():
@@ -615,15 +626,17 @@ class MaintainabilityAnalyzer(QualityAnalyzer):
                     f"{file}:{line}"
                     for file, line in zip(sorted(meta["files"]), sorted(meta["lines"]))
                 ]
-                self.findings.append({
-                    "type": "function_duplication",
-                    "severity": SeverityLevel.MEDIUM,
-                    "function": func_name,
-                    "description": f"Function `{func_name}` appears in multiple files with identical or near-identical structure.",
-                    "file": ", ".join(file_locations),
-                    "locations": file_locations,
-                    "suggestion": "Consider refactoring shared logic into a common module.",
-                })
+                self.findings.append(
+                    {
+                        "type": "function_duplication",
+                        "severity": SeverityLevel.MEDIUM,
+                        "function": func_name,
+                        "description": f"Function `{func_name}` appears in multiple files with identical or near-identical structure.",
+                        "file": ", ".join(file_locations),
+                        "locations": file_locations,
+                        "suggestion": "Consider refactoring shared logic into a common module.",
+                    }
+                )
 
     async def _analyze_code_duplication(self, path):
         """Analyze code duplication."""
