@@ -34,7 +34,6 @@ import zipfile
 import tempfile
 from pathlib import Path
 from typing import Iterable, Set
-from termcolor import colored
 from dotenv import load_dotenv
 
 load_dotenv()
