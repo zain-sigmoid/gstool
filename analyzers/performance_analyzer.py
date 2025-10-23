@@ -88,7 +88,14 @@ class PerformanceAnalyzer(QualityAnalyzer):
         self.findings = []
         error_count = 0
         start_time = asyncio.get_event_loop().time()
-        python_files = self._find_python_files(config.target_path)
+        # python_files = self._find_python_files(config.target_path)
+        if getattr(config, "files", None):
+            # Use the explicit file list passed from CLI
+            python_files = config.files
+        else:
+            # Fallback: discover files automatically
+            python_files = self._find_python_files(config.target_path)
+
         if not python_files:
             logger.warning(
                 f"No Python files found in {os.path.basename(config.target_path)}"
