@@ -1,5 +1,15 @@
-# 🔍 Sigscan - Command Line Interface
-### Unified analysis tool combining multiple security, quality, and compliance checkers.
+<h1 align="center">🔍 Sigscan - Command Line Interface</h1>
+
+<p align="center">
+  <a href="https://github.com/zain-sigmoid/sigscan-cli/releases">
+    <img src="https://img.shields.io/github/v/release/zain-sigmoid/sigscan-cli?color=blue" alt="version"/>
+  </a>
+  <a href="https://github.com/zain-sigmoid/sigscan-cli/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/license-Sigmoid%20License-red.svg" alt="license"/>
+  </a>
+  <img src="https://img.shields.io/badge/python->=3.9-yellow" alt="python"/>
+  <img src="https://img.shields.io/badge/platform-MacOS%20%7C%20linux-cyan" alt="platform"/>
+</p>
 
 ## ✨ Features
 - 🔐 Security Analysis: Secrets, vulnerabilities, injection attacks
