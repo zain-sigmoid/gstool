@@ -11,6 +11,9 @@
   <img src="https://img.shields.io/badge/platform-MacOS%20%7C%20linux-cyan" alt="platform"/>
 </p>
 
+sigscan-cli is a unified static analysis and compliance framework that integrates multiple scanners into one command-line tool.
+It performs end-to-end code intelligence covering security, privacy, performance, and maintainability to help developers ship robust and compliant code faster
+
 ## ✨ Features
 - 🔐 Security Analysis: Secrets, vulnerabilities, injection attacks
 - 🛡️ Privacy Compliance: PII/PHI detection, GDPR/HIPAA compliance
