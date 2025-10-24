@@ -60,7 +60,7 @@ pkg-config --modversion icu-i18n
 
 ## 🏗️ Install From Source
 ```bash
-pip install "git+https://github.com/zain-sigmoid/sigscan-cli.git@main#egg=sigscan"
+pip install git+https://github.com/zain-sigmoid/sigscan-cli.git
 ```
 
 ## 🚀 Quick Start
