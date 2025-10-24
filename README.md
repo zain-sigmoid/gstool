@@ -1,4 +1,4 @@
-# 🔍 SigScan - Command Line Interface
+# 🔍 Sigscan - Command Line Interface
 ### Unified analysis tool combining multiple security, quality, and compliance checkers.
 
 ## ✨ Features
@@ -25,8 +25,40 @@
 - Auto-detects likely project root (folder with most .py files)
 - **Single File:** Analyze a single .py file when provided instead of Path
 
-## Installing
-### From Source
+## 📦 Installation
+### 🧰 Prerequisities(MacOS)
+- **Install Xcode command line tools**
+    ```bash
+    xcode-select --install
+    ```
+- **Install required dependencies via Homebrew**
+    ```bash
+    brew install pkg-config icu4c
+    ```
+
+- **Export ICU path for pkg-config (needed for build)**
+    ```bash
+    echo 'export PKG_CONFIG_PATH="$(brew --prefix icu4c)/lib/pkgconfig:$PKG_CONFIG_PATH"' >> ~/.zshrc
+    ```
+    ```bash
+    source ~/.zshrc
+    ```
+### 🧰 Prerequisities(Linux)
+- **Dependencies**
+    ```bash
+    sudo apt-get update && sudo apt-get install -y pkg-config libicu-dev build-essential
+    ```
+
+*Quit VS Code and restart for updating terminal environment*
+
+### Optional quick test
+```bash
+pkg-config --modversion icu-i18n
+```
+*It should print version (e.g., 74.2), you’re good to go 🚀.*
+
+
+## 🏗️ Install From Source
 ```bash
 pip install "git+https://github.com/zain-sigmoid/sigscan-cli.git@main#egg=sigscan"
 ```
@@ -48,7 +80,7 @@ sigscan path -o output_file.json
 sigscan file_path/file.py -o output.json
 ```
 
-## CLI Usage
+## 📘 CLI Usage
 ```bash
 usage: sigscan [-h] [-a ANALYZER] [--all-analyzers] [--parallel] [--include-low-confidence] [--timeout TIMEOUT]
                [--max-findings MAX_FINDINGS] [-o FILE] [--compact] [--no-progress] [-v] [--list-analyzers]
