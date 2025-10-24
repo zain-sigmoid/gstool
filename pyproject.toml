@@ -31,6 +31,7 @@ dependencies = [
     "pip-licenses",
     "radon",
     "termcolor",
+    "dotenv",
 ]
 
 [project.scripts]
