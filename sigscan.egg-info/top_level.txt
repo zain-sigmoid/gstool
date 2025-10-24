@@ -1,4 +1,0 @@
-analyzers
-cli
-core
-utils
