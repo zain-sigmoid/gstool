@@ -12,5 +12,6 @@ user_project/
 assets/
 project_run/
 project_run/RGM_econ_pyfiles/
+sigscan.egg-info/
 setup_phase1.py
 main_consolidated.py
