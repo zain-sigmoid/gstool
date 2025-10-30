@@ -1,68 +1,51 @@
 # 🔍 Code Review Tool
-### Unified analysis platform combining multiple security, quality, and compliance checkers.
+Unified analysis platform combining multiple security, quality, and compliance checkers for Streamlit-based workflows.
 
-## ✨ Features
-- 🔐 Security Analysis: Secrets, vulnerabilities, injection attacks
-- 🛡️ Privacy Compliance: PII/PHI detection, GDPR/HIPAA compliance
-- 📊 Code Quality: Readability, maintainability, performance
-- 🧪 Testing & Observability: Test coverage, logging analysis
-- 🧰 Maintainability: Cyclomatic Complexity, Maintainability Index
-- ⚙️ Performance: Inefficient code patterns, resource usage
+## ✨ Core Capabilities
+- 🔐 Security analysis for secrets, vulnerabilities, and injection risks.
+- 🛡️ Privacy compliance checks for PII/PHI and regulatory alignment.
+- 📊 Code quality metrics covering readability, maintainability, and complexity.
+- 🧪 Testing and observability insights for coverage and logging gaps.
+- ⚙️ Performance profiling to highlight inefficient or resource-heavy code paths.
 
-## Additional Features & Changes
-This repo includes extra functionality to make the tool work smoothly on Streamlit Community Cloud and in production environments:
+## 🔧 Key Enhancements
+- **Gitleaks integration:** The `ensure_gitleaks()` helper bootstraps Gitleaks in `/tmp` when it is not already present and falls back to the system binary when available.  
+  - Linux environments are handled automatically.  
+  - macOS users should install Gitleaks once with `brew install gitleaks`; the app will detect the binary afterwards.
+- **ZIP project uploads:** Upload entire projects as `.zip` archives. The extractor sanitizes paths, skips unwanted folders (such as `__MACOSX`), and auto-detects the most relevant project root.
+- **Single-file uploads:** Analyze an individual `.py` file directly without repackaging the project.
 
-### Gitleaks Integration
-Added ensure_gitleaks() utility that:
-- Downloads and sets up Gitleaks automatically in /tmp if it is not already available in the environment.
-- Falls back to system-installed gitleaks if found in PATH.
-- Uses pure Python (urllib + tarfile) to avoid dependency on wget/tar.
-- Securtity analyzers now call ensure_gitleaks() to guarantee gitleaks is present before scanning.
-
-### ZIP File Upload for Projects
-- Added project upload support via st.file_uploader for .zip archives.
-- Uploaded ZIPs are extracted into /tmp/user_project safely:
-- Skips unwanted directories (like __MACOSX or hidden files).
-- Protects against path traversal vulnerabilities.
-- Automatically detects the likely project root (folder with the most .py files).
-- This allows users to upload their entire codebase in one step for analysis.
-
-### Single File Upload
-- Added support for uploading and analyzing a single .py file.
-- Uploaded files are stored in /tmp/single_file and analyzed directly
-
-## 📦 Running the Tool
-
-### Clone the repo:
-
+## 🚀 Getting Started
 ```bash
-git clone https://github.com/sanjeetarya001/CodeQualityShield
-cd codequalityshield
-```
-
-### Set Up the Environment
-```bash
+git clone https://github.com/zain-sigmoid/gstool.git
+cd gstool
 python3 -m venv venv
 source venv/bin/activate
-```
-
-### Install the dependencies
-```bash
 pip install -r requirements.txt
+cp .env.example .env  # Populate required secrets before running
 ```
 
-### Setup .env file same as .env.example
-
-### Run the Application
+### Launch the UI
 ```bash
 streamlit run main_consolidated.py
 ```
 
-## 🧪 Analysis
+## 🧪 Using the Analyzer
+1. Upload a project ZIP or a single Python file.
+2. Click **Run Analysis** to trigger the analyzer suite (Maintainability, Injection, Performance, Privacy, and more).
+3. Review the dashboard for:  
+   - Summary metrics (execution time, files analyzed, error counts).  
+   - Detailed findings with severity, explanations, and remediation guidance.
 
-1. Put the zip file of the folder of which you want to code review.  
-2. Press **Run Analysis** to start scanning.  
-3. Wait for the analyzers (Maintainability, Injection, Performance, Privacy) to run.  
-4. View the findings in the results panel:
-   - Summary metrics (files analyzed, execution time, errors, etc.)
-   - Detailed findings with severity, description, and remediation guidance.
+## 🖥️ CLI Workflow Option
+Prefer running scans locally? Use the CLI and import the results into the UI.
+
+```bash
+sigscan path -o out.json
+sigscan path -a <analyzer_name> -o out.json
+```
+
+After generating `out.json`, upload it through the UI to visualize the findings. Installation notes for the CLI are available in the [sigscan-cli repository](https://github.com/zain-sigmoid/sigscan-cli).
+
+## 📄 License
+This project is proprietary and intended for internal use only by authorized Sigmoid Analytics employees and contractors.
