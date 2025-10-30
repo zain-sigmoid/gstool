@@ -25,8 +25,8 @@ It performs end-to-end code intelligence covering security, privacy, performance
 ## Additional Features & Changes
 
 ### Gitleaks Integration
-- The CLI automatically ensures gitleaks is available:
-- Downloads & sets up Gitleaks into /tmp if not found in PATH
+- The CLI automatically ensures gitleaks is available
+- Downloads & sets up Gitleaks into /tmp if not found in PATH(Only for Linux, for MacOS install using HomeBrew)
 - Falls back to system-installed gitleaks when available
 - Uses pure Python (urllib + tarfile) — no wget/tar dependency
 - Security analyzers call ensure_gitleaks() before scanning
@@ -56,6 +56,11 @@ It performs end-to-end code intelligence covering security, privacy, performance
     ```bash
     source ~/.zshrc
     ```
+- **Install Gitleaks on MacOS**
+    ```bash
+    brew install gitleaks
+    ```
+
 ### 🧰 Prerequisities(Linux)
 - **Dependencies**
     ```bash
@@ -126,7 +131,8 @@ This file can be uploaded on the tool to view the result at <a href="https://cod
 
 ## 🧩 Troubleshooting
 **“gitleaks not found”**<br>
-The CLI will auto-download; ensure your environment allows network access and /tmp write permissions. You can also download on MacOS via brew
+The CLI will auto-download for Linux; ensure your environment allows network access and /tmp write permissions.<br>
+On MacOS you can download via brew
 ```bash
 brew install gitleaks
 ```
